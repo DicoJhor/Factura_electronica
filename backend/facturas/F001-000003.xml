@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"
+         Id="Invoice-F001-000003">
+  <cbc:ID>F001-000003</cbc:ID>
+  <cbc:IssueDate>2025-10-07</cbc:IssueDate>
+  <cbc:DocumentCurrencyCode>PEN</cbc:DocumentCurrencyCode>
+
+  <cac:AccountingSupplierParty>
+    <cbc:CustomerAssignedAccountID>20123456789</cbc:CustomerAssignedAccountID>
+    <cac:Party>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>MI EMPRESA PRUEBA</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+
+  <cac:AccountingCustomerParty>
+    <cbc:CustomerAssignedAccountID>77057138</cbc:CustomerAssignedAccountID>
+    <cac:Party>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Jhordan</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+
+  
+      <cac:InvoiceLine>
+        <cbc:ID>1</cbc:ID>
+        <cbc:InvoicedQuantity unitCode="NIU">1</cbc:InvoicedQuantity>
+        <cbc:LineExtensionAmount currencyID="PEN">5.00</cbc:LineExtensionAmount>
+        <cac:Item>
+          <cbc:Description>caros</cbc:Description>
+        </cac:Item>
+        <cac:Price>
+          <cbc:PriceAmount currencyID="PEN">5.00</cbc:PriceAmount>
+        </cac:Price>
+      </cac:InvoiceLine>
+
+  <cac:LegalMonetaryTotal>
+    <cbc:PayableAmount currencyID="PEN">5.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+</Invoice>

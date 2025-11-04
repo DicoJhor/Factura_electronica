@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+         Id="Invoice-F001-000043">
+  <cbc:ID>F001-000043</cbc:ID>
+  <cbc:IssueDate>2025-11-04</cbc:IssueDate>
+  <cbc:DocumentCurrencyCode>PEN</cbc:DocumentCurrencyCode>
+
+  <cac:AccountingSupplierParty>
+    <cbc:CustomerAssignedAccountID>20000000001</cbc:CustomerAssignedAccountID>
+    <cac:Party>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>MI EMPRESA PRUEBA</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+
+  <cac:AccountingCustomerParty>
+    <cbc:CustomerAssignedAccountID>77057138</cbc:CustomerAssignedAccountID>
+    <cac:Party>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Jhordan</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+
+  
+      <cac:InvoiceLine>
+        <cbc:ID>1</cbc:ID>
+        <cbc:InvoicedQuantity unitCode="NIU">1</cbc:InvoicedQuantity>
+        <cbc:LineExtensionAmount currencyID="PEN">3.50</cbc:LineExtensionAmount>
+        <cac:Item>
+          <cbc:Description>Inca Kola 500ml</cbc:Description>
+        </cac:Item>
+        <cac:Price>
+          <cbc:PriceAmount currencyID="PEN">3.50</cbc:PriceAmount>
+        </cac:Price>
+      </cac:InvoiceLine>
+      <cac:InvoiceLine>
+        <cbc:ID>2</cbc:ID>
+        <cbc:InvoicedQuantity unitCode="NIU">1</cbc:InvoicedQuantity>
+        <cbc:LineExtensionAmount currencyID="PEN">3.50</cbc:LineExtensionAmount>
+        <cac:Item>
+          <cbc:Description>Coca Cola 500ml</cbc:Description>
+        </cac:Item>
+        <cac:Price>
+          <cbc:PriceAmount currencyID="PEN">3.50</cbc:PriceAmount>
+        </cac:Price>
+      </cac:InvoiceLine>
+
+  <cac:LegalMonetaryTotal>
+    <cbc:PayableAmount currencyID="PEN">7.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+</Invoice>

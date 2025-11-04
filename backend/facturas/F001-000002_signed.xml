@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
+  <ext:UBLExtensions>
+    <ext:UBLExtension>
+      <ext:ExtensionContent>
+      <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="SignatureKG">
+<ds:SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+<ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+<ds:Reference URI="">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+<ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+<ds:DigestValue>wuLhyjTr5w1UqQh4wXuocYxxVV8fW7nkGK5TJ2SVH30=</ds:DigestValue>
+</ds:Reference>
+</ds:SignedInfo>
+<ds:SignatureValue>WgX7hMGH7tN9agzkvafrtr1N3+OujB3x8AvrXpPbQkNNczbOVrnYO6eOkKTNCwB1zORGU3jwQzXvymvWz6Q9ojB+ZtOBYTSvmnNN3zXMVWYoYL4triFjIRx5/+hFAy+UJDQmyCw5NDYXEzxLFCNxE1+7gOiKUs5MbJhIf5QHDfXPob3vCgud8OgeV1c8rnWr/tIYMhVWsUkcm+emsLzodhqxfVTPsNBgJmxxK8CqqM6SUSWdnOUw2Vuz0zejmA6rsVA8GLN90j2rMUr59F5kB11xz2KXi75pC7MIlnhjTukAMVmz6UMq2MnwD1G6G3QbQwjM+nBjEiycQmBA/H+ZHg==</ds:SignatureValue>
+<ds:KeyInfo>
+<ds:X509Data>
+<ds:X509Certificate>MIIDozCCAougAwIBAgIUVcIl3BdNtOGwueo+MeY7nVrKcE0wDQYJKoZIhvcNAQEL
+BQAwYTELMAkGA1UEBhMCUEUxDTALBgNVBAgMBExpbWExETAPBgNVBAcMCFRydWpp
+bGxvMRIwEAYDVQQKDAlNaUVtcHJlc2ExCzAJBgNVBAsMAklUMQ8wDQYDVQQDDAZw
+cnVlYmEwHhcNMjUxMDA3MDExNDI2WhcNMjYxMDA3MDExNDI2WjBhMQswCQYDVQQG
+EwJQRTENMAsGA1UECAwETGltYTERMA8GA1UEBwwIVHJ1amlsbG8xEjAQBgNVBAoM
+CU1pRW1wcmVzYTELMAkGA1UECwwCSVQxDzANBgNVBAMMBnBydWViYTCCASIwDQYJ
+KoZIhvcNAQEBBQADggEPADCCAQoCggEBALu48PDctReZnB8MrJP3ev5CVKO/ojkr
+Gpcf1/0crXbKWw3YZ2xochzPd2GVKaphJI/Lv7ia78FPx7U8mfJFrV+TGfflJZTA
+QvJT0oF3oQfFuXqKrrUJLpEnkld65LakxlS9f9LaZ0kD20LT2UUXFzkN6auBSCJs
+7tMyygF5JilgwnKFKw5dbEBh/z0guV9Kn72Z9cKcR6izcAnwv9NYkAQQ3dhyXSlr
++e34jMjAhcEB+72zkY7+02VUnCxoF84JM1mEVjZIokDMV7WSBeNwLO+Q3W7+jDgU
+q4HjhzwypNOt6Tkxm+zNZIpRdxD8ZLCWrA8nugJ9bUkZjQZkEzn0OY8CAwEAAaNT
+MFEwHQYDVR0OBBYEFL5aGehT0UET9r15V40FuZWrPG9CMB8GA1UdIwQYMBaAFL5a
+GehT0UET9r15V40FuZWrPG9CMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEL
+BQADggEBADJ8GguUhuIfMaRN+X6J42DVsregjtlyFRZZioiZuFDsCSoe8VBbudby
+y+TyrD5RfZZbniLeUviXl2da4V3XQA/JtDI3ISuOsCURI0KsNzitjYuvyTn4TNsP
+egtFEPXFHI7LMYKPIdNHL91xJrQ2VqJ6yPU+KfN5o2cxy3mGpMy7zJeSTbpyHMS0
+eNSVxjITDafNIRGGFDbpIiZ1Xp2ULvggmP0T82WFU9QwNMLe+UFiZM/x2whROhTT
+KOLT3vrS6x0c5ljVHvLOes7cAH8O3bcV33598Yo7SKg3XS1AB0Cp+09h6Yz/WnCO
+0b4VFgLqRK8P+lVLBTmzO8qlBnpKpJQ=</ds:X509Certificate>
+</ds:X509Data>
+</ds:KeyInfo>
+</ds:Signature></ext:ExtensionContent>
+    </ext:UBLExtension>
+  </ext:UBLExtensions>
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:CustomizationID>2.0</cbc:CustomizationID>
+  <cbc:ID>F001-000002</cbc:ID>
+  <cbc:IssueDate>2025-10-07</cbc:IssueDate>
+  <cbc:InvoiceTypeCode listID="0101">01</cbc:InvoiceTypeCode>
+  <cbc:DocumentCurrencyCode>PEN</cbc:DocumentCurrencyCode>
+  <cac:AccountingSupplierParty>
+    <cbc:CustomerAssignedAccountID>20123456789</cbc:CustomerAssignedAccountID>
+    <cac:Party>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>undefined</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cbc:CustomerAssignedAccountID>77057138</cbc:CustomerAssignedAccountID>
+    <cac:Party>
+      <cac:PartyLegalEntity>
+        <cbc:RegistrationName>Jhordan</cbc:RegistrationName>
+      </cac:PartyLegalEntity>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  
+    <cac:InvoiceLine>
+      <cbc:ID>1</cbc:ID>
+      <cbc:InvoicedQuantity unitCode="NIU">1</cbc:InvoicedQuantity>
+      <cbc:LineExtensionAmount currencyID="PEN">5.00</cbc:LineExtensionAmount>
+      <cac:Item>
+        <cbc:Description>caros</cbc:Description>
+      </cac:Item>
+      <cac:Price>
+        <cbc:PriceAmount currencyID="PEN">5.00</cbc:PriceAmount>
+      </cac:Price>
+    </cac:InvoiceLine>
+  <cac:LegalMonetaryTotal>
+    <cbc:PayableAmount currencyID="PEN">5.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+</Invoice>

@@ -1,0 +1,22 @@
+/* index.css */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Asegura que la aplicación ocupe toda la altura */
+html, body, #root {
+  height: 100%; 
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  /* Fondo Degradado (Mezcla de gris y azul/índigo muy suaves) */
+  background: linear-gradient(to bottom right, #f8fafc, #eef2ff); 
+  
+  /* Tipografía base limpia (Se verá más profesional) */
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  color: #334155; /* Color de texto base gris oscuro */
+  scroll-behavior: smooth; 
+}
