@@ -1,7 +1,5 @@
 // backend/models/facturaModel.js
 import { pool } from "../config/db.js";
-
-// 🧾 Crear una factura
 export const crearFactura = async (factura) => {
   const [result] = await pool.query(
     `INSERT INTO facturas (numero, cliente_nombre, cliente_documento, fecha_emision, total, estado)
@@ -17,8 +15,6 @@ export const crearFactura = async (factura) => {
   );
   return result.insertId;
 };
-
-// 📦 Agregar detalle a una factura
 export const agregarDetalle = async (facturaId, detalle) => {
   await pool.query(
     `INSERT INTO detalle_factura (factura_id, producto, cantidad, precio_unitario, subtotal)
@@ -26,16 +22,12 @@ export const agregarDetalle = async (facturaId, detalle) => {
     [facturaId, detalle.producto, detalle.cantidad, detalle.precio_unitario, detalle.subtotal]
   );
 };
-
-// 🔄 Actualizar estado y mensaje SUNAT
 export const actualizarEstado = async (facturaId, estado, mensaje = null) => {
   await pool.query(
     `UPDATE facturas SET estado = ?, mensaje = ? WHERE id = ?`,
     [estado, mensaje, facturaId]
   );
 };
-
-// 🔢 Generar siguiente número F001-000001, F001-000002, etc.
 export const generarSiguienteNumero = async () => {
   const [rows] = await pool.query(`SELECT numero FROM facturas ORDER BY id DESC LIMIT 1`);
   if (rows.length === 0) return "F001-000001";
@@ -46,7 +38,6 @@ export const generarSiguienteNumero = async () => {
   return `${serie}-${nuevo}`;
 };
 
-// 📋 Listar todas las facturas con sus detalles (💥 NUEVO)
 export const listarFacturas = async () => {
   const [rows] = await pool.query(`
     SELECT 
