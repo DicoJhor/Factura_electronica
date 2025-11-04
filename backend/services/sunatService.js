@@ -4,10 +4,6 @@ import path from "path";
 import soap from "soap";
 import https from "https";
 import { sunatConfig } from "../config/sunat.js";
-
-/**
- * Descarga un archivo con autenticación HTTP Basic
- */
 const descargarConAuth = (url, username, password) => {
   return new Promise((resolve, reject) => {
     const auth = Buffer.from(`${username}:${password}`).toString("base64");
@@ -49,21 +45,17 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
   let wsdlImportPath = null;
 
   try {
-    console.log("📤 Iniciando envío a SUNAT...");
-    console.log("📦 Archivo:", zipName);
-    console.log("🔧 Modo:", sunatConfig.mode);
+    console.log("Iniciando envío a SUNAT...");
+    console.log("Archivo:", zipName);
+    console.log("Modo:", sunatConfig.mode);
 
-    // Validar que el archivo existe
     if (!fs.existsSync(zipPath)) {
       throw new Error(`Archivo ZIP no encontrado: ${zipPath}`);
     }
 
-    // Leer ZIP en base64
     const zipBuffer = fs.readFileSync(zipPath);
     const zipContent = zipBuffer.toString("base64");
-    console.log("📏 Tamaño ZIP:", zipBuffer.length, "bytes");
-
-    // URLs del servicio
+    console.log("Tamaño ZIP:", zipBuffer.length, "bytes");
     const baseURL =
       sunatConfig.mode === "beta"
         ? "https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService"
@@ -72,47 +64,33 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     const wsdlURL = `${baseURL}?wsdl`;
     const wsdlImportURL = `${baseURL}?ns1.wsdl`;
 
-    console.log("🌐 WSDL Base:", wsdlURL);
-
-    // Preparar credenciales
+    console.log("WSDL Base:", wsdlURL);
     const username = `${sunatConfig.ruc}${sunatConfig.user}`;
     const password = sunatConfig.pass;
 
     console.log("🔐 Usuario:", username);
     console.log("🔐 Contraseña:", password.substring(0, 3) + "***");
-
-    // Crear carpeta temporal para WSDL
     const tempFolder = path.resolve("./temp");
     if (!fs.existsSync(tempFolder)) {
       fs.mkdirSync(tempFolder, { recursive: true });
     }
 
-    // ✅ Descargar WSDL principal
-    console.log("📥 Descargando WSDL principal...");
+    console.log("Descargando WSDL principal...");
     let wsdlContent = await descargarConAuth(wsdlURL, username, password);
-    console.log("✅ WSDL principal descargado");
-
-    // ✅ Descargar WSDL importado (ns1.wsdl)
-    console.log("📥 Descargando WSDL importado (ns1.wsdl)...");
+    console.log("WSDL principal descargado");
+    console.log("Descargando WSDL importado (ns1.wsdl)...");
     const wsdlImportContent = await descargarConAuth(wsdlImportURL, username, password);
-    console.log("✅ WSDL importado descargado");
-
-    // Guardar WSDL importado
+    console.log("WSDL importado descargado");
     wsdlImportPath = path.join(tempFolder, "billService_ns1.wsdl");
     fs.writeFileSync(wsdlImportPath, wsdlImportContent);
-
-    // Modificar el WSDL principal para que apunte al archivo local
     wsdlContent = wsdlContent.replace(
       'location="billService?ns1.wsdl"',
       `location="file:///${wsdlImportPath.replace(/\\/g, "/")}"`
     );
-
-    // Guardar WSDL principal modificado
     wsdlTempPath = path.join(tempFolder, "billService.wsdl");
     fs.writeFileSync(wsdlTempPath, wsdlContent);
-    console.log("💾 WSDL guardado temporalmente en:", wsdlTempPath);
+    console.log("WSDL guardado temporalmente en:", wsdlTempPath);
 
-    // Crear cliente SOAP desde archivo local
     const client = await soap.createClientAsync(wsdlTempPath, {
       endpoint: baseURL,
       wsdl_options: {
@@ -121,23 +99,19 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       request_timeout: 60000,
     });
 
-    console.log("✅ Cliente SOAP creado");
+    console.log("Cliente SOAP creado");
 
-    // Configurar autenticación HTTP Basic
     const basicAuth = new soap.BasicAuthSecurity(username, password);
     client.setSecurity(basicAuth);
 
-    console.log("🔒 Seguridad BasicAuth configurada");
-
-    // Preparar argumentos para sendBill
+    console.log("Seguridad BasicAuth configurada");
     const args = {
       fileName: zipName,
       contentFile: zipContent,
     };
 
-    console.log("📤 Enviando solicitud a SUNAT...");
+    console.log("Enviando solicitud a SUNAT...");
 
-    // Ejecutar método sendBill
     const result = await Promise.race([
       client.sendBillAsync(args),
       new Promise((_, reject) =>
@@ -148,46 +122,38 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       ),
     ]);
 
-    console.log("📥 Respuesta recibida de SUNAT");
+    console.log("Respuesta recibida de SUNAT");
 
-    // Extraer resultado
     const [response] = Array.isArray(result) ? result : [result];
 
-    console.log("🔍 Analizando respuesta...");
+    console.log("Analizando respuesta...");
 
-    // Verificar si hay respuesta
     if (!response) {
-      console.error("❌ Respuesta vacía de SUNAT");
+      console.error("Respuesta vacía de SUNAT");
       return {
         success: false,
         message: "SUNAT devolvió una respuesta vacía",
       };
     }
 
-    // Log completo en modo beta
     if (sunatConfig.mode === "beta") {
-      console.log("📋 Respuesta completa:", JSON.stringify(response, null, 2));
+      console.log("Respuesta completa:", JSON.stringify(response, null, 2));
     }
-
-    // Verificar si SUNAT aceptó la factura
     if (response.applicationResponse) {
-      console.log("✅ SUNAT aceptó el comprobante");
+      console.log("SUNAT aceptó el comprobante");
 
-      // Decodificar CDR (Constancia de Recepción)
       const cdrData = Buffer.from(response.applicationResponse, "base64");
 
-      // Crear carpeta CDR si no existe
       const cdrFolder = path.resolve("./facturas/cdr");
       if (!fs.existsSync(cdrFolder)) {
         fs.mkdirSync(cdrFolder, { recursive: true });
       }
 
-      // Guardar CDR
       const cdrFileName = `R-${zipName}`;
       const cdrPath = path.join(cdrFolder, cdrFileName);
       fs.writeFileSync(cdrPath, cdrData);
 
-      console.log("💾 CDR guardado en:", cdrPath);
+      console.log("CDR guardado en:", cdrPath);
 
       return {
         success: true,
@@ -196,12 +162,11 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       };
     }
 
-    // Verificar errores SOAP
     if (response.faultcode || response.faultstring) {
       const errorCode = response.faultcode || "UNKNOWN";
       const errorMessage = response.faultstring || "Error desconocido";
 
-      console.error("❌ Error SOAP:", errorCode, "-", errorMessage);
+      console.error("Error SOAP:", errorCode, "-", errorMessage);
 
       return {
         success: false,
@@ -210,14 +175,14 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     }
 
     // Respuesta inesperada
-    console.error("⚠️ Respuesta inesperada de SUNAT:", response);
+    console.error("Respuesta inesperada de SUNAT:", response);
     return {
       success: false,
       message: "Respuesta inesperada de SUNAT. Revisa los logs.",
     };
 
   } catch (err) {
-    console.error("❌ Error en enviarFacturaASunat:", err);
+    console.error("Error en enviarFacturaASunat:", err);
 
     let errorMessage = "Error al comunicarse con SUNAT";
 
@@ -226,7 +191,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     }
 
     if (err.message?.includes("401")) {
-      errorMessage = "❌ Error 401: Credenciales incorrectas. Verifica RUC, usuario y contraseña";
+      errorMessage = "Error 401: Credenciales incorrectas. Verifica RUC, usuario y contraseña";
     }
 
     if (err.root?.Envelope?.Body?.Fault) {
@@ -253,14 +218,14 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     try {
       if (wsdlTempPath && fs.existsSync(wsdlTempPath)) {
         fs.unlinkSync(wsdlTempPath);
-        console.log("🗑️  WSDL temporal eliminado");
+        console.log("WSDL temporal eliminado");
       }
       if (wsdlImportPath && fs.existsSync(wsdlImportPath)) {
         fs.unlinkSync(wsdlImportPath);
-        console.log("🗑️  WSDL importado eliminado");
+        console.log("WSDL importado eliminado");
       }
     } catch (cleanupErr) {
-      console.warn("⚠️  No se pudieron eliminar archivos temporales:", cleanupErr.message);
+      console.warn("No se pudieron eliminar archivos temporales:", cleanupErr.message);
     }
   }
 };
