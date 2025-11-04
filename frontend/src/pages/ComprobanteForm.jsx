@@ -94,10 +94,10 @@ const ComprobanteForm = () => {
 
       const data = await res.json();
       if (res.ok) {
-        alert("✅ Factura generada correctamente");
+        alert("Factura generada correctamente");
         setFacturaGenerada(data);
       } else {
-        alert("❌ Error al generar la factura: " + data.error);
+        alert("Error al generar la factura: " + data.error);
       }
     } catch (error) {
       console.error("Error:", error);
