@@ -5,10 +5,13 @@ const FacturasList = () => {
   const [facturas, setFacturas] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // 🔹 URL base de tu backend en Railway
+  const BASE_URL = "https://facturaelectronica-production.up.railway.app";
+
   useEffect(() => {
     const fetchFacturas = async () => {
       try {
-        const response = await axios.get("http://localhost:5000/api/facturas");
+        const response = await axios.get(`${BASE_URL}/api/facturas`);
         setFacturas(response.data || []);
       } catch (error) {
         console.error("Error al cargar las facturas:", error);
@@ -44,20 +47,11 @@ const FacturasList = () => {
           </thead>
           <tbody>
             {facturas.map((factura, index) => (
-              <tr
-                key={factura.id || index}
-                className="border-b hover:bg-gray-50 transition"
-              >
+              <tr key={factura.id || index} className="border-b hover:bg-gray-50 transition">
                 <td className="py-3 px-4 text-sm text-gray-700">{index + 1}</td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  {factura.cliente_nombre || "—"}
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  {factura.cliente_documento || "—"}
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  {factura.total?.toFixed(2) || "0.00"}
-                </td>
+                <td className="py-3 px-4 text-sm text-gray-700">{factura.cliente_nombre || "—"}</td>
+                <td className="py-3 px-4 text-sm text-gray-700">{factura.cliente_documento || "—"}</td>
+                <td className="py-3 px-4 text-sm text-gray-700">{factura.total?.toFixed(2) || "0.00"}</td>
                 <td className="py-3 px-4 text-sm text-gray-700">
                   {new Date(factura.fecha_emision).toLocaleDateString("es-PE")}
                 </td>

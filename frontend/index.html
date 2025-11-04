@@ -62,6 +62,9 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo } = React;
 
+        // URL del backend en Railway
+        const API_URL = 'https://facturaelectronica-production.up.railway.app';
+
         // --- 1. LÓGICA DE UTILIDAD Y HOOKS ---
 
         // Función auxiliar para formatear la moneda (Soles Peruanos)
@@ -169,7 +172,7 @@
                         </div>
                     ) : productosDisponibles.length === 0 ? (
                         <div className="text-center py-10 text-red-500 italic border-2 border-dashed border-red-200 rounded-xl bg-red-50">
-                            No se encontraron productos. Verifica la conexión a tu backend (http://localhost:4000).
+                            No se encontraron productos. Verifica la conexión a tu backend.
                         </div>
                     ) : (
                         <div className="overflow-x-auto bg-white rounded-xl">
@@ -267,7 +270,7 @@
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                Cargando catálogo desde http://localhost:4000...
+                                Cargando catálogo...
                             </div>
                         ) : productosDisponibles.length === 0 ? (
                             <div className="text-center py-5 text-red-500 italic border-2 border-dashed border-red-200 rounded-lg">
@@ -397,7 +400,7 @@
                         {facturaGenerada && (
                             <div className="flex gap-2">
                                 <a
-                                    href={`http://localhost:4000${facturaGenerada.pdf}`} 
+                                    href={`${API_URL}${facturaGenerada.pdf}`} 
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="bg-blue-600 text-white font-semibold px-4 py-2.5 rounded-xl hover:bg-blue-700 transition-shadow shadow-lg flex items-center gap-2"
@@ -409,7 +412,7 @@
                                     Ver PDF
                                 </a>
                                 <a
-                                    href={`http://localhost:4000${facturaGenerada.pdf}`}
+                                    href={`${API_URL}${facturaGenerada.pdf}`}
                                     download
                                     className="bg-green-600 text-white font-semibold px-4 py-2.5 rounded-xl hover:bg-green-700 transition-shadow shadow-lg flex items-center gap-2"
                                 >
@@ -426,12 +429,11 @@
         };
 
 
-        // Vista de Facturas (FacturasList) - CORREGIDA
+        // Vista de Facturas (FacturasList)
         const FacturasList = ({ alert }) => {
             const [facturas, setFacturas] = useState([]);
             const [loading, setLoading] = useState(true);
 
-            // Se usa useCallback para la función de alerta si se pasa como dependencia en useEffect.
             const memoizedAlert = useCallback(alert, [alert]); 
 
             useEffect(() => {
@@ -439,7 +441,7 @@
                     setLoading(true);
                     try {
                         // Endpoint para obtener facturas existentes
-                        const res = await fetch("http://localhost:4000/api/facturas"); 
+                        const res = await fetch(`${API_URL}/api/facturas`); 
                         if (!res.ok) throw new Error("Error al cargar facturas.");
                         const data = await res.json();
                         setFacturas(data);
@@ -498,7 +500,7 @@
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                                                 {f.pdf ? (
                                                     <a
-                                                        href={`http://localhost:4000${f.pdf}`} 
+                                                        href={`${API_URL}${f.pdf}`} 
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="text-indigo-600 hover:text-indigo-800 font-semibold"
@@ -525,7 +527,7 @@
             const [facturaGenerada, setFacturaGenerada] = useState(null);
             const [loading, setLoading] = useState(false);
 
-            // Cálculo del total como valor derivado (CORRECCIÓN ANTERIOR)
+            // Cálculo del total como valor derivado
             const total = useMemo(() => {
                 return productosSeleccionados.reduce((acc, p) => 
                     acc + (Number(p.cantidad) || 0) * (Number(p.precio) || 0), 0
@@ -549,7 +551,6 @@
                     );
                     setProductosSeleccionados(nuevos);
                 } else {
-                    // stockMax es solo un valor placeholder ya que no controlamos stock real aquí
                     const nuevos = [...productosSeleccionados, { ...producto, cantidad: 1, stockMax: 1000 }];
                     setProductosSeleccionados(nuevos);
                 }
@@ -586,7 +587,7 @@
 
                 setLoading(true);
                 try {
-                    const res = await fetch("http://localhost:4000/api/facturas", {
+                    const res = await fetch(`${API_URL}/api/facturas`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
@@ -595,10 +596,9 @@
                                 producto: p.nombre,
                                 cantidad: p.cantidad,
                                 precio_unitario: p.precio,
-                                // Utilizamos el cálculo del subtotal en el momento del envío
                                 subtotal: p.cantidad * p.precio, 
                             })),
-                            total, // Usamos el 'total' calculado arriba
+                            total,
                         }),
                     });
 
@@ -650,18 +650,16 @@
             // Estado para el modal de mensajes
             const [message, setMessage] = useState(null);
             
-            // 🟢 CORRECCIÓN CLAVE: Envolvemos 'alert' en useCallback para que sea una función estable.
-            // Esto evita que 'fetchProductos' se recree y el 'useEffect' se ejecute en bucle.
             const alert = useCallback((msg) => {
                 setMessage({ msg, type: msg.startsWith('❌') ? 'error' : 'success' });
             }, [setMessage]); 
             const closeMessage = () => setMessage(null);
             
-            // Función para cargar productos, ahora depende de funciones y setters estables.
+            // Función para cargar productos
             const fetchProductos = useCallback(async () => {
                 setIsProductLoading(true);
                 try {
-                    const res = await fetch("http://localhost:4000/api/productos");
+                    const res = await fetch(`${API_URL}/api/productos`);
                     
                     if (!res.ok) {
                         throw new Error("Respuesta de red no fue ok.");
@@ -671,23 +669,22 @@
                     setProductosDisponibles(data);
                 } catch (error) {
                     console.error("Error al obtener productos:", error);
-                    alert("❌ Error de conexión: No se pudo cargar el catálogo de productos. Asegúrate que tu servidor backend está corriendo en http://localhost:4000.");
+                    alert("❌ Error de conexión: No se pudo cargar el catálogo de productos. Asegúrate que tu servidor backend está corriendo.");
                 } finally {
                     setIsProductLoading(false);
                 }
             }, [alert, setIsProductLoading, setProductosDisponibles]);
 
 
-            // Cargar productos desde el backend (se ejecuta UNA SOLA VEZ gracias a la estabilidad de fetchProductos)
+            // Cargar productos desde el backend
             useEffect(() => {
                 fetchProductos();
-            }, [fetchProductos]); // fetchProductos ya es estable.
+            }, [fetchProductos]);
 
-            // Función para renderizar la página actual (simula el <Routes>)
+            // Función para renderizar la página actual
             const renderPage = () => {
                 switch (currentPage) {
                     case 'comprobante':
-                        // La vista del formulario usa su propia lógica interna
                         return <ComprobanteFormLogic 
                             productosDisponibles={productosDisponibles} 
                             isProductLoading={isProductLoading}
@@ -699,7 +696,6 @@
                         />;
                     case 'productos':
                     default:
-                        // La vista de productos es simple, solo muestra la lista
                         return <ProductosListView 
                             alert={alert}
                             isProductLoading={isProductLoading} 
@@ -709,23 +705,19 @@
             };
             
             return (
-                // Utilizamos el layout que especificaste
                 <div className="min-h-screen flex flex-col">
                     <Navbar currentPage={currentPage} setCurrentPage={setCurrentPage} />
                     
-                    {/* Contenedor principal de la aplicación: usa max-w-7xl y el shadow-2xl que pediste */}
                     <main className="flex-grow flex justify-center items-start px-4 sm:px-6 lg:px-8 py-8 md:py-12">
                         <div className="w-full max-w-7xl bg-white shadow-2xl rounded-xl p-6 lg:p-10 border border-gray-50">
                             {renderPage()}
                         </div>
                     </main>
 
-                    {/* Footer con el estilo que especificaste */}
                     <footer className="text-center text-sm text-gray-500 py-4 border-t border-gray-200 bg-white/70 backdrop-blur-sm shadow-inner">
                         © {new Date().getFullYear()} Facturador Beta — Todos los derechos reservados.
                     </footer>
                     
-                    {/* Modal de Mensajes (Alertas) */}
                     <MessageBox 
                         message={message?.msg} 
                         type={message?.type} 
