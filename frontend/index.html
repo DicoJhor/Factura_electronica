@@ -206,11 +206,13 @@
             );
         };
 
-        // Vista de Comprobante (ComprobanteFormView)
+        // Vista de Comprobante (ComprobanteFormView) - ACTUALIZADA CON CONSULTA SUNAT
         const ComprobanteForm = ({ 
             cliente, handleClienteChange, productosDisponibles, isProductLoading,
             productosSeleccionados, agregarProducto, eliminarProducto, cambiarCantidad,
-            total, loading, emitirComprobante, facturaGenerada
+            total, loading, emitirComprobante, facturaGenerada,
+            // Nuevos props para consulta SUNAT
+            numeroConsulta, setNumeroConsulta, consultando, errorConsulta, consultarSUNAT
         }) => {
             return (
                 <div className="p-4">
@@ -221,6 +223,66 @@
                         </svg>
                         Emisión de Comprobante Electrónico
                     </h2>
+
+                    {/* ========== NUEVA SECCIÓN: CONSULTA SUNAT ========== */}
+                    <div className="mb-6 p-5 border-2 border-blue-300 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl shadow-lg">
+                        <h3 className="text-xl font-bold text-blue-800 mb-4 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" />
+                            </svg>
+                            🔍 Consultar Cliente en SUNAT
+                        </h3>
+                        
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <input
+                                type="text"
+                                value={numeroConsulta}
+                                onChange={(e) => setNumeroConsulta(e.target.value.replace(/\D/g, ""))}
+                                onKeyPress={(e) => e.key === 'Enter' && consultarSUNAT()}
+                                placeholder="Ingrese RUC (11 dígitos) o DNI (8 dígitos)"
+                                maxLength="11"
+                                disabled={consultando}
+                                className="flex-1 p-3 border-2 border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 text-base"
+                            />
+                            <button
+                                onClick={consultarSUNAT}
+                                disabled={consultando || !numeroConsulta}
+                                className={`
+                                    px-6 py-3 font-bold text-base rounded-lg transition-all duration-200 min-w-[160px] flex items-center justify-center gap-2
+                                    ${consultando || !numeroConsulta
+                                        ? "bg-gray-400 cursor-not-allowed text-gray-700"
+                                        : "bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transform hover:scale-105"
+                                    }
+                                `}
+                            >
+                                {consultando ? (
+                                    <>
+                                        <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Buscando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" />
+                                        </svg>
+                                        Buscar
+                                    </>
+                                )}
+                            </button>
+                        </div>
+
+                        {errorConsulta && (
+                            <div className="mt-4 p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded flex items-center gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                </svg>
+                                <span className="font-medium">{errorConsulta}</span>
+                            </div>
+                        )}
+                    </div>
 
                     {/* 1. Datos del Cliente */}
                     <div className="mb-8 p-4 border border-indigo-200 bg-indigo-50 rounded-xl shadow-inner">
@@ -527,6 +589,11 @@
             const [facturaGenerada, setFacturaGenerada] = useState(null);
             const [loading, setLoading] = useState(false);
 
+            // ========== NUEVOS ESTADOS PARA CONSULTA SUNAT ==========
+            const [numeroConsulta, setNumeroConsulta] = useState("");
+            const [consultando, setConsultando] = useState(false);
+            const [errorConsulta, setErrorConsulta] = useState("");
+
             // Cálculo del total como valor derivado
             const total = useMemo(() => {
                 return productosSeleccionados.reduce((acc, p) => 
@@ -534,6 +601,55 @@
                 );
             }, [productosSeleccionados]);
 
+            // ========== NUEVA FUNCIÓN: CONSULTAR SUNAT ==========
+            const consultarSUNAT = async () => {
+                if (!numeroConsulta.trim()) {
+                    setErrorConsulta("Por favor ingrese un RUC o DNI");
+                    return;
+                }
+
+                if (numeroConsulta.length !== 8 && numeroConsulta.length !== 11) {
+                    setErrorConsulta("El RUC debe tener 11 dígitos o el DNI 8 dígitos");
+                    return;
+                }
+
+                setConsultando(true);
+                setErrorConsulta("");
+
+                try {
+                    const response = await fetch(`${API_URL}/api/sunat/consultar-ruc`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ numero: numeroConsulta.trim() }),
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        // Llenar automáticamente los datos del cliente
+                        setCliente({
+                            nombre: result.data.razonSocial || result.data.nombre,
+                            ruc: result.data.numero,
+                            direccion: result.data.direccion || "",
+                        });
+
+                        // Limpiar el campo de consulta
+                        setNumeroConsulta("");
+                        
+                        // Mostrar mensaje de éxito
+                        alert(`✅ Datos cargados: ${result.data.razonSocial || result.data.nombre}`);
+                    } else {
+                        setErrorConsulta(result.message || "No se encontraron datos");
+                    }
+                } catch (err) {
+                    console.error("Error en la consulta:", err);
+                    setErrorConsulta("Error al conectar con el servidor");
+                } finally {
+                    setConsultando(false);
+                }
+            };
 
             // Actualiza los datos del cliente
             const handleClienteChange = (e) => {
@@ -632,7 +748,13 @@
                 total={total} 
                 loading={loading} 
                 emitirComprobante={emitirComprobante} 
-                facturaGenerada={facturaGenerada} 
+                facturaGenerada={facturaGenerada}
+                // Pasamos los props de SUNAT
+                numeroConsulta={numeroConsulta}
+                setNumeroConsulta={setNumeroConsulta}
+                consultando={consultando}
+                errorConsulta={errorConsulta}
+                consultarSUNAT={consultarSUNAT}
             />
         }
 
