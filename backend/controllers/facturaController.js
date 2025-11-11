@@ -16,7 +16,6 @@ export const emitirFactura = async (req, res) => {
   try {
     const body = req.body;
 
-    // ✅ Validación temprana
     if (!body.cliente) {
       return res.status(400).json({ 
         success: false, 
@@ -86,7 +85,7 @@ export const emitirFactura = async (req, res) => {
     const modoDesarrollo = process.env.MODO_DESARROLLO === "true";
     
     if (modoDesarrollo) {
-      console.log("🔧 Modo desarrollo: Factura generada sin enviar a SUNAT");
+      console.log("Modo desarrollo: Factura generada sin enviar a SUNAT");
       await actualizarEstado(facturaId, "GENERADA", null);
       
       res.json({
