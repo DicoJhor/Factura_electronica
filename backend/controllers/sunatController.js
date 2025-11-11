@@ -40,21 +40,32 @@ export const consultarRUC = async (req, res) => {
 
     // Determinar tipo de consulta
     const esRUC = numeroLimpio.length === 11;
-    const endpoint = esRUC ? 'ruc' : 'dni';
     
-    // API gratuita para consulta de RUC/DNI en Perú
-    const urlConsulta = `https://dniruc.apisperu.com/api/v1/${endpoint}/${numeroLimpio}?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFwaXNwZXJ1QGdtYWlsLmNvbSJ9.V_c8YtfjrPaZ6Xm2gsDH5m3sJ6Sd0VgL3sBwIVUvF0s`;
-    
-    console.log(`🔍 Consultando ${endpoint.toUpperCase()}: ${numeroLimpio}`);
+    console.log(`🔍 Consultando ${esRUC ? 'RUC' : 'DNI'}: ${numeroLimpio}`);
 
-    // Realizar la petición
-    const response = await axios.get(urlConsulta, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'FacturadorElectronico/1.0'
-      },
-      timeout: 15000
-    });
+    let response;
+    
+    if (esRUC) {
+      // Para RUC: usar API de apis.net.pe
+      const urlConsulta = `https://api.apis.net.pe/v2/sunat/ruc/full?numero=${numeroLimpio}`;
+      response = await axios.get(urlConsulta, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'FacturadorElectronico/1.0'
+        },
+        timeout: 15000
+      });
+    } else {
+      // Para DNI: usar API de apis.net.pe
+      const urlConsulta = `https://api.apis.net.pe/v2/reniec/dni?numero=${numeroLimpio}`;
+      response = await axios.get(urlConsulta, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'FacturadorElectronico/1.0'
+        },
+        timeout: 15000
+      });
+    }
 
     // Verificar que hay datos
     if (!response.data) {
