@@ -12,10 +12,10 @@ export const reenviarASunat = async (req, res) => {
   }
 };
 
-// ============= FUNCIÓN MEJORADA PARA CONSULTA RUC/DNI =============
+// ============= FUNCIÓN MEJORADA CON MÚLTIPLES APIs DE RESPALDO =============
 
 /**
- * Consulta datos de RUC o DNI usando API de terceros confiable
+ * Consulta datos de RUC o DNI con sistema de fallback
  */
 export const consultarRUC = async (req, res) => {
   try {
@@ -38,45 +38,20 @@ export const consultarRUC = async (req, res) => {
       });
     }
 
-    // Determinar tipo de consulta
     const esRUC = numeroLimpio.length === 11;
-    
     console.log(`🔍 Consultando ${esRUC ? 'RUC' : 'DNI'}: ${numeroLimpio}`);
 
-    let response;
-    
-    if (esRUC) {
-      // Para RUC: usar API de apis.net.pe
-      const urlConsulta = `https://api.apis.net.pe/v2/sunat/ruc/full?numero=${numeroLimpio}`;
-      response = await axios.get(urlConsulta, {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'FacturadorElectronico/1.0'
-        },
-        timeout: 15000
-      });
-    } else {
-      // Para DNI: usar API de apis.net.pe
-      const urlConsulta = `https://api.apis.net.pe/v2/reniec/dni?numero=${numeroLimpio}`;
-      response = await axios.get(urlConsulta, {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'FacturadorElectronico/1.0'
-        },
-        timeout: 15000
-      });
-    }
+    // Intentar con múltiples APIs
+    const datos = esRUC 
+      ? await consultarRUCConFallback(numeroLimpio)
+      : await consultarDNIConFallback(numeroLimpio);
 
-    // Verificar que hay datos
-    if (!response.data) {
+    if (!datos) {
       return res.status(404).json({
         success: false,
         message: 'No se encontraron datos para el número proporcionado'
       });
     }
-
-    // Formatear respuesta según tipo de documento
-    const datos = esRUC ? formatearDatosRUC(response.data, numeroLimpio) : formatearDatosDNI(response.data, numeroLimpio);
 
     console.log(`✅ Datos encontrados: ${datos.razonSocial || datos.nombre}`);
 
@@ -88,28 +63,6 @@ export const consultarRUC = async (req, res) => {
   } catch (error) {
     console.error('❌ Error al consultar:', error.message);
     
-    // Manejar errores específicos
-    if (error.code === 'ECONNABORTED') {
-      return res.status(504).json({
-        success: false,
-        message: 'Tiempo de espera agotado. Intente nuevamente.'
-      });
-    }
-    
-    if (error.response?.status === 404) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontró el RUC/DNI proporcionado en la base de datos'
-      });
-    }
-
-    if (error.response?.status === 429) {
-      return res.status(429).json({
-        success: false,
-        message: 'Demasiadas consultas. Espere un momento e intente nuevamente.'
-      });
-    }
-
     return res.status(500).json({
       success: false,
       message: 'Error al consultar los datos. Intente nuevamente.',
@@ -119,9 +72,113 @@ export const consultarRUC = async (req, res) => {
 };
 
 /**
- * Formatea los datos de un RUC
+ * Intenta consultar RUC con múltiples APIs
  */
-function formatearDatosRUC(data, numero) {
+async function consultarRUCConFallback(ruc) {
+  const apis = [
+    {
+      nombre: 'API Perú',
+      url: `https://api.apis.net.pe/v2/sunat/ruc/full?numero=${ruc}`,
+      formatear: formatearDatosRUC_APIPeru
+    },
+    {
+      nombre: 'APIs Peru',
+      url: `https://dniruc.apisperu.com/api/v1/ruc/${ruc}?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFwaXNwZXJ1QGdtYWlsLmNvbSJ9.V_c8YtfjrPaZ6Xm2gsDH5m3sJ6Sd0VgL3sBwIVUvF0s`,
+      formatear: formatearDatosRUC_APIsPeruCom
+    },
+    {
+      nombre: 'Consulta RUC',
+      url: `https://consultaruc.win/api/ruc/${ruc}`,
+      formatear: formatearDatosRUC_ConsultaRUC
+    }
+  ];
+
+  for (const api of apis) {
+    try {
+      console.log(`   Intentando con ${api.nombre}...`);
+      const response = await axios.get(api.url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0'
+        },
+        timeout: 10000
+      });
+
+      if (response.data && (response.data.razonSocial || response.data.nombre)) {
+        console.log(`   ✓ Éxito con ${api.nombre}`);
+        return api.formatear(response.data, ruc);
+      }
+    } catch (error) {
+      console.log(`   ✗ Falló ${api.nombre}: ${error.message}`);
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Intenta consultar DNI con múltiples APIs
+ */
+async function consultarDNIConFallback(dni) {
+  const apis = [
+    {
+      nombre: 'API Perú DNI',
+      url: `https://api.apis.net.pe/v2/reniec/dni?numero=${dni}`,
+      formatear: formatearDatosDNI_APIPeru
+    },
+    {
+      nombre: 'APIs Peru DNI',
+      url: `https://dniruc.apisperu.com/api/v1/dni/${dni}?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFwaXNwZXJ1QGdtYWlsLmNvbSJ9.V_c8YtfjrPaZ6Xm2gsDH5m3sJ6Sd0VgL3sBwIVUvF0s`,
+      formatear: formatearDatosDNI_APIsPeruCom
+    }
+  ];
+
+  for (const api of apis) {
+    try {
+      console.log(`   Intentando con ${api.nombre}...`);
+      const response = await axios.get(api.url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0'
+        },
+        timeout: 10000
+      });
+
+      if (response.data && (response.data.nombres || response.data.nombreCompleto)) {
+        console.log(`   ✓ Éxito con ${api.nombre}`);
+        return api.formatear(response.data, dni);
+      }
+    } catch (error) {
+      console.log(`   ✗ Falló ${api.nombre}: ${error.message}`);
+      continue;
+    }
+  }
+
+  return null;
+}
+
+// ============= FORMATEADORES PARA DIFERENTES APIs =============
+
+function formatearDatosRUC_APIPeru(data, numero) {
+  return {
+    numero: numero,
+    tipoDocumento: 'RUC',
+    razonSocial: data.razonSocial || data.nombre || '',
+    nombre: data.razonSocial || data.nombre || '',
+    nombreComercial: data.nombreComercial || '',
+    tipo: data.tipo || '',
+    estado: data.estado || '',
+    condicion: data.condicion || '',
+    direccion: data.direccion || '',
+    departamento: data.departamento || '',
+    provincia: data.provincia || '',
+    distrito: data.distrito || '',
+    ubigeo: data.ubigeo || ''
+  };
+}
+
+function formatearDatosRUC_APIsPeruCom(data, numero) {
   return {
     numero: numero,
     tipoDocumento: 'RUC',
@@ -135,22 +192,50 @@ function formatearDatosRUC(data, numero) {
     departamento: data.departamento || '',
     provincia: data.provincia || '',
     distrito: data.distrito || '',
-    ubigeo: data.ubigeo || '',
-    // Datos adicionales que puede devolver la API
-    sistemaEmision: data.sistemaEmision || '',
-    actividadEconomica: data.actividadEconomica || '',
-    numeroTrabajadores: data.numeroTrabajadores || '',
-    tipoFacturacion: data.tipoFacturacion || '',
-    comercioExterior: data.comercioExterior || '',
-    fechaInscripcion: data.fechaInscripcion || '',
-    fechaInicioActividades: data.fechaInicioActividades || ''
+    ubigeo: data.ubigeo || ''
   };
 }
 
-/**
- * Formatea los datos de un DNI
- */
-function formatearDatosDNI(data, numero) {
+function formatearDatosRUC_ConsultaRUC(data, numero) {
+  return {
+    numero: numero,
+    tipoDocumento: 'RUC',
+    razonSocial: data.nombre || data.razonSocial || '',
+    nombre: data.nombre || data.razonSocial || '',
+    nombreComercial: '',
+    tipo: '',
+    estado: data.estado || '',
+    condicion: data.condicion || '',
+    direccion: data.direccion || '',
+    departamento: data.departamento || '',
+    provincia: data.provincia || '',
+    distrito: data.distrito || '',
+    ubigeo: ''
+  };
+}
+
+function formatearDatosDNI_APIPeru(data, numero) {
+  const nombreCompleto = data.nombreCompleto || 
+    `${data.nombres || ''} ${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
+  
+  return {
+    numero: numero,
+    tipoDocumento: 'DNI',
+    nombre: nombreCompleto,
+    razonSocial: nombreCompleto,
+    nombres: data.nombres || '',
+    apellidoPaterno: data.apellidoPaterno || '',
+    apellidoMaterno: data.apellidoMaterno || '',
+    direccion: '',
+    departamento: '',
+    provincia: '',
+    distrito: '',
+    estado: 'ACTIVO',
+    condicion: 'HABIDO'
+  };
+}
+
+function formatearDatosDNI_APIsPeruCom(data, numero) {
   const nombreCompleto = `${data.nombres || ''} ${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
   
   return {
