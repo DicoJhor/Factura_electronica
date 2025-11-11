@@ -4,10 +4,16 @@ import { reenviarASunat, consultarRUC } from "../controllers/sunatController.js"
 
 const router = express.Router();
 
-// Ruta existente para reenviar factura
-router.post("/reenviar", reenviarASunat);
+// 🔍 RUTA DE PRUEBA (GET)
+router.get("/test", (req, res) => {
+  res.json({ 
+    message: "✅ Rutas SUNAT funcionando correctamente",
+    timestamp: new Date().toISOString() 
+  });
+});
 
-// Nueva ruta para consultar RUC/DNI
+// Rutas existentes
+router.post("/reenviar", reenviarASunat);
 router.post("/consultar-ruc", consultarRUC);
 
 export default router;
