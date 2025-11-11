@@ -20,6 +20,7 @@ export const reenviarASunat = async (req, res) => {
  */
 export const consultarRUC = async (req, res) => {
   try {
+    const { numero } = req.body;
 
     if (!numero) {
       return res.status(400).json({
