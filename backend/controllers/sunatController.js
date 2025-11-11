@@ -1,4 +1,3 @@
-// backend/controllers/sunatController.js
 import { enviarFacturaASunat } from "../services/sunatService.js";
 import axios from 'axios';
 
@@ -13,15 +12,16 @@ export const reenviarASunat = async (req, res) => {
   }
 };
 
-// ============= NUEVAS FUNCIONES PARA CONSULTA RUC/DNI =============
+// ============= FUNCIÓN MEJORADA PARA CONSULTA RUC/DNI =============
 
 /**
- * Consulta datos de RUC o DNI en SUNAT
+ * Consulta datos de RUC o DNI usando API de terceros confiable
  */
 export const consultarRUC = async (req, res) => {
   try {
     const { numero } = req.body;
 
+    // Validación de entrada
     if (!numero) {
       return res.status(400).json({
         success: false,
@@ -29,7 +29,7 @@ export const consultarRUC = async (req, res) => {
       });
     }
 
-    // Validar formato
+    // Limpiar y validar formato
     const numeroLimpio = numero.toString().trim();
     if (numeroLimpio.length !== 11 && numeroLimpio.length !== 8) {
       return res.status(400).json({
@@ -38,31 +38,36 @@ export const consultarRUC = async (req, res) => {
       });
     }
 
-    // Realizar consulta a SUNAT
-    const urlConsulta = 'https://e-consultaruc.sunat.gob.pe/cl-ti-itmrconsruc/jcrS00Alias';
+    // Determinar tipo de consulta
+    const esRUC = numeroLimpio.length === 11;
+    const endpoint = esRUC ? 'ruc' : 'dni';
     
+    // API gratuita para consulta de RUC/DNI en Perú
+    const urlConsulta = `https://dniruc.apisperu.com/api/v1/${endpoint}/${numeroLimpio}?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImFwaXNwZXJ1QGdtYWlsLmNvbSJ9.V_c8YtfjrPaZ6Xm2gsDH5m3sJ6Sd0VgL3sBwIVUvF0s`;
+    
+    console.log(`🔍 Consultando ${endpoint.toUpperCase()}: ${numeroLimpio}`);
+
+    // Realizar la petición
     const response = await axios.get(urlConsulta, {
-      params: {
-        accion: 'consPorRuc',
-        nroRuc: numeroLimpio
-      },
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'es-PE,es;q=0.9',
+        'Accept': 'application/json',
+        'User-Agent': 'FacturadorElectronico/1.0'
       },
       timeout: 15000
     });
 
-    // Parsear la respuesta HTML
-    const datos = parsearRespuestaSUNAT(response.data, numeroLimpio);
-
-    if (!datos.razonSocial && !datos.nombre) {
+    // Verificar que hay datos
+    if (!response.data) {
       return res.status(404).json({
         success: false,
         message: 'No se encontraron datos para el número proporcionado'
       });
     }
+
+    // Formatear respuesta según tipo de documento
+    const datos = esRUC ? formatearDatosRUC(response.data, numeroLimpio) : formatearDatosDNI(response.data, numeroLimpio);
+
+    console.log(`✅ Datos encontrados: ${datos.razonSocial || datos.nombre}`);
 
     return res.status(200).json({
       success: true,
@@ -70,147 +75,86 @@ export const consultarRUC = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error al consultar SUNAT:', error.message);
+    console.error('❌ Error al consultar:', error.message);
     
     // Manejar errores específicos
     if (error.code === 'ECONNABORTED') {
       return res.status(504).json({
         success: false,
-        message: 'Tiempo de espera agotado al consultar SUNAT'
+        message: 'Tiempo de espera agotado. Intente nuevamente.'
       });
     }
     
     if (error.response?.status === 404) {
       return res.status(404).json({
         success: false,
-        message: 'No se encontraron datos para el número proporcionado'
+        message: 'No se encontró el RUC/DNI proporcionado en la base de datos'
+      });
+    }
+
+    if (error.response?.status === 429) {
+      return res.status(429).json({
+        success: false,
+        message: 'Demasiadas consultas. Espere un momento e intente nuevamente.'
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: 'Error al consultar los datos en SUNAT',
+      message: 'Error al consultar los datos. Intente nuevamente.',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 /**
- * Parsea la respuesta HTML de SUNAT y extrae los datos
+ * Formatea los datos de un RUC
  */
-function parsearRespuestaSUNAT(html, numero) {
-  const datos = {
+function formatearDatosRUC(data, numero) {
+  return {
     numero: numero,
-    tipoDocumento: numero.length === 8 ? 'DNI' : 'RUC',
-    razonSocial: '',
-    nombre: '',
-    estado: '',
-    condicion: '',
+    tipoDocumento: 'RUC',
+    razonSocial: data.razonSocial || '',
+    nombre: data.razonSocial || '',
+    nombreComercial: data.nombreComercial || '',
+    tipo: data.tipo || '',
+    estado: data.estado || '',
+    condicion: data.condicion || '',
+    direccion: data.direccion || '',
+    departamento: data.departamento || '',
+    provincia: data.provincia || '',
+    distrito: data.distrito || '',
+    ubigeo: data.ubigeo || '',
+    // Datos adicionales que puede devolver la API
+    sistemaEmision: data.sistemaEmision || '',
+    actividadEconomica: data.actividadEconomica || '',
+    numeroTrabajadores: data.numeroTrabajadores || '',
+    tipoFacturacion: data.tipoFacturacion || '',
+    comercioExterior: data.comercioExterior || '',
+    fechaInscripcion: data.fechaInscripcion || '',
+    fechaInicioActividades: data.fechaInicioActividades || ''
+  };
+}
+
+/**
+ * Formatea los datos de un DNI
+ */
+function formatearDatosDNI(data, numero) {
+  const nombreCompleto = `${data.nombres || ''} ${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
+  
+  return {
+    numero: numero,
+    tipoDocumento: 'DNI',
+    nombre: nombreCompleto,
+    razonSocial: nombreCompleto,
+    nombres: data.nombres || '',
+    apellidoPaterno: data.apellidoPaterno || '',
+    apellidoMaterno: data.apellidoMaterno || '',
     direccion: '',
     departamento: '',
     provincia: '',
     distrito: '',
-    ubigeo: ''
+    estado: 'ACTIVO',
+    condicion: 'HABIDO'
   };
-
-  try {
-    // Extraer todos los datos de las celdas de la tabla
-    const celdas = extraerCeldasTabla(html);
-
-    // Buscar Razón Social o Nombre
-    const razonSocialIndex = celdas.findIndex(c => 
-      c.includes('Nombre') || c.includes('Razón Social')
-    );
-    if (razonSocialIndex !== -1 && celdas[razonSocialIndex + 1]) {
-      datos.razonSocial = limpiarTexto(celdas[razonSocialIndex + 1]);
-      datos.nombre = datos.razonSocial;
-    }
-
-    // Extraer Tipo de Contribuyente
-    const tipoMatch = html.match(/Tipo\s+Contribuyente[:\s]*<\/td>[\s\S]*?<td[^>]*>(.*?)<\/td>/i);
-    if (tipoMatch && tipoMatch[1]) {
-      datos.tipoContribuyente = limpiarTexto(tipoMatch[1]);
-    }
-
-    // Extraer Estado
-    const estadoIndex = celdas.findIndex(c => 
-      c.includes('Estado del Contribuyente')
-    );
-    if (estadoIndex !== -1 && celdas[estadoIndex + 1]) {
-      datos.estado = limpiarTexto(celdas[estadoIndex + 1]);
-    }
-
-    // Extraer Condición
-    const condicionIndex = celdas.findIndex(c => 
-      c.includes('Condición del Contribuyente')
-    );
-    if (condicionIndex !== -1 && celdas[condicionIndex + 1]) {
-      datos.condicion = limpiarTexto(celdas[condicionIndex + 1]);
-    }
-
-    // Extraer Dirección
-    const direccionIndex = celdas.findIndex(c => 
-      c.includes('Domicilio Fiscal')
-    );
-    if (direccionIndex !== -1 && celdas[direccionIndex + 1]) {
-      datos.direccion = limpiarTexto(celdas[direccionIndex + 1]);
-    }
-
-    // Extraer Departamento
-    const deptoMatch = html.match(/Departamento[:\s]*<\/td>[\s\S]*?<td[^>]*>(.*?)<\/td>/i);
-    if (deptoMatch && deptoMatch[1]) {
-      datos.departamento = limpiarTexto(deptoMatch[1]);
-    }
-
-    // Extraer Provincia
-    const provMatch = html.match(/Provincia[:\s]*<\/td>[\s\S]*?<td[^>]*>(.*?)<\/td>/i);
-    if (provMatch && provMatch[1]) {
-      datos.provincia = limpiarTexto(provMatch[1]);
-    }
-
-    // Extraer Distrito
-    const distMatch = html.match(/Distrito[:\s]*<\/td>[\s\S]*?<td[^>]*>(.*?)<\/td>/i);
-    if (distMatch && distMatch[1]) {
-      datos.distrito = limpiarTexto(distMatch[1]);
-    }
-
-  } catch (error) {
-    console.error('Error al parsear respuesta SUNAT:', error);
-  }
-
-  return datos;
-}
-
-/**
- * Extrae todas las celdas de la tabla HTML
- */
-function extraerCeldasTabla(html) {
-  const celdas = [];
-  const regex = /<td[^>]*>(.*?)<\/td>/gi;
-  let match;
-
-  while ((match = regex.exec(html)) !== null) {
-    celdas.push(match[1]);
-  }
-
-  return celdas;
-}
-
-/**
- * Limpia el texto extraído del HTML
- */
-function limpiarTexto(texto) {
-  if (!texto) return '';
-  
-  return texto
-    .replace(/<[^>]*>/g, '') // Remover tags HTML
-    .replace(/&nbsp;/g, ' ') // Reemplazar &nbsp;
-    .replace(/&amp;/g, '&') // Reemplazar &amp;
-    .replace(/&lt;/g, '<') // Reemplazar &lt;
-    .replace(/&gt;/g, '>') // Reemplazar &gt;
-    .replace(/&quot;/g, '"') // Reemplazar &quot;
-    .replace(/&#39;/g, "'") // Reemplazar &#39;
-    .replace(/\s+/g, ' ') // Normalizar espacios
-    .replace(/\n+/g, ' ') // Remover saltos de línea
-    .trim();
 }
