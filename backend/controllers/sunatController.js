@@ -1,8 +1,11 @@
 // backend/controllers/sunatController.js
 import { enviarFacturaASunat } from "../services/sunatService.js";
-import axios from 'axios';
+import axios from "axios";
+import dotenv from "dotenv";
 
-// Tu función existente
+dotenv.config();
+
+// =================== FUNCIONES EXISTENTES ===================
 export const reenviarASunat = async (req, res) => {
   const { zipPath, nombreArchivo } = req.body;
   try {
@@ -13,284 +16,223 @@ export const reenviarASunat = async (req, res) => {
   }
 };
 
-// ============= FUNCIONES PARA CONSULTA RUC/DNI =============
+// =================== CONSULTA RUC/DNI ===================
 
-/**
- * Consulta RUC usando múltiples APIs (con fallback)
- */
+// Token de API de apisperu.com
+const tokenAPISPERU = process.env.APISPERU_TOKEN;
+
+// -------- CONSULTA RUC --------
 const consultarRUCConFallback = async (ruc) => {
   const apis = [
     {
-      name: 'apis.net.pe',
+      name: "apis.net.pe",
       url: `https://api.apis.net.pe/v2/sunat/ruc/full?numero=${ruc}`,
+      headers: { Authorization: "" },
       transform: (data) => ({
         numero: ruc,
-        tipoDocumento: 'RUC',
-        razonSocial: data.nombre || '',
-        nombre: data.nombre || '',
-        estado: data.estado || '',
-        condicion: data.condicion || '',
-        direccion: data.direccion || '',
-        departamento: data.departamento || '',
-        provincia: data.provincia || '',
-        distrito: data.distrito || '',
-        ubigeo: data.ubigeo || ''
-      })
+        tipoDocumento: "RUC",
+        razonSocial: data.nombre || "",
+        nombre: data.nombre || "",
+        estado: data.estado || "",
+        condicion: data.condicion || "",
+        direccion: data.direccion || "",
+        departamento: data.departamento || "",
+        provincia: data.provincia || "",
+        distrito: data.distrito || "",
+        ubigeo: data.ubigeo || "",
+      }),
     },
     {
-      name: 'apiperu.dev',
+      name: "apiperu.dev",
       url: `https://apiperu.dev/api/ruc/${ruc}`,
+      headers: { Authorization: "" },
       transform: (data) => ({
         numero: ruc,
-        tipoDocumento: 'RUC',
-        razonSocial: data.data?.nombre_o_razon_social || '',
-        nombre: data.data?.nombre_o_razon_social || '',
-        estado: data.data?.estado || '',
-        condicion: data.data?.condicion || '',
-        direccion: data.data?.direccion || '',
-        departamento: data.data?.departamento || '',
-        provincia: data.data?.provincia || '',
-        distrito: data.data?.distrito || '',
-        ubigeo: data.data?.ubigeo || ''
-      })
+        tipoDocumento: "RUC",
+        razonSocial: data.data?.nombre_o_razon_social || "",
+        nombre: data.data?.nombre_o_razon_social || "",
+        estado: data.data?.estado || "",
+        condicion: data.data?.condicion || "",
+        direccion: data.data?.direccion || "",
+        departamento: data.data?.departamento || "",
+        provincia: data.data?.provincia || "",
+        distrito: data.data?.distrito || "",
+        ubigeo: data.data?.ubigeo || "",
+      }),
     },
     {
-      name: 'dniruc.apisperu.com',
+      name: "dniruc.apisperu.com",
       url: `https://dniruc.apisperu.com/api/v1/ruc/${ruc}`,
+      headers: { Authorization: `Bearer ${tokenAPISPERU}` },
       transform: (data) => ({
         numero: ruc,
-        tipoDocumento: 'RUC',
-        razonSocial: data.razonSocial || '',
-        nombre: data.razonSocial || '',
-        estado: data.estado || '',
-        condicion: data.condicion || '',
-        direccion: data.direccion || '',
-        departamento: data.departamento || '',
-        provincia: data.provincia || '',
-        distrito: data.distrito || '',
-        ubigeo: data.ubigeo || ''
-      })
-    }
+        tipoDocumento: "RUC",
+        razonSocial: data.razonSocial || "",
+        nombre: data.razonSocial || "",
+        estado: data.estado || "",
+        condicion: data.condicion || "",
+        direccion: data.direccion || "",
+        departamento: data.departamento || "",
+        provincia: data.provincia || "",
+        distrito: data.distrito || "",
+        ubigeo: data.ubigeo || "",
+      }),
+    },
   ];
 
   let lastError = null;
 
   for (const api of apis) {
     try {
-      console.log(`Intentando consultar RUC en ${api.name}...`);
-      
+      console.log(`🔍 Consultando RUC en ${api.name}...`);
       const response = await axios.get(api.url, {
         timeout: 8000,
         headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+          ...api.headers,
+          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0",
+        },
       });
 
-      if (response.data && (response.data.nombre || response.data.razonSocial || response.data.data)) {
+      if (
+        response.data &&
+        (response.data.nombre ||
+          response.data.razonSocial ||
+          response.data.data)
+      ) {
         const datos = api.transform(response.data);
-        
-        if (datos.razonSocial && datos.razonSocial.trim() !== '') {
+        if (datos.razonSocial && datos.razonSocial.trim() !== "") {
           console.log(`✅ RUC encontrado en ${api.name}`);
-          return {
-            success: true,
-            data: datos
-          };
+          return { success: true, data: datos };
         }
       }
     } catch (error) {
       console.log(`❌ Error en ${api.name}:`, error.message);
       lastError = error;
-      continue;
     }
   }
 
-  throw lastError || new Error('No se pudo consultar el RUC en ninguna API');
+  throw lastError || new Error("No se pudo consultar el RUC en ninguna API");
 };
 
-/**
- * Consulta DNI usando múltiples APIs (con fallback)
- */
+// -------- CONSULTA DNI --------
 const consultarDNIConFallback = async (dni) => {
   const apis = [
     {
-      name: 'apis.net.pe',
+      name: "apis.net.pe",
       url: `https://api.apis.net.pe/v2/reniec/dni?numero=${dni}`,
+      headers: { Authorization: "" },
       transform: (data) => {
-        const nombreCompleto = `${data.nombres || ''} ${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
+        const nombreCompleto = `${data.nombres || ""} ${data.apellidoPaterno || ""} ${data.apellidoMaterno || ""}`.trim();
         return {
           numero: dni,
-          tipoDocumento: 'DNI',
+          tipoDocumento: "DNI",
           nombre: nombreCompleto,
           razonSocial: nombreCompleto,
-          nombres: data.nombres || '',
-          apellidoPaterno: data.apellidoPaterno || '',
-          apellidoMaterno: data.apellidoMaterno || '',
-          direccion: '',
-          estado: 'ACTIVO',
-          condicion: 'HABIDO'
+          estado: "ACTIVO",
+          condicion: "HABIDO",
         };
-      }
+      },
     },
     {
-      name: 'apiperu.dev',
+      name: "apiperu.dev",
       url: `https://apiperu.dev/api/dni/${dni}`,
+      headers: { Authorization: "" },
       transform: (data) => {
-        const nombreCompleto = data.data?.nombre_completo || '';
+        const nombreCompleto = data.data?.nombre_completo || "";
         return {
           numero: dni,
-          tipoDocumento: 'DNI',
+          tipoDocumento: "DNI",
           nombre: nombreCompleto,
           razonSocial: nombreCompleto,
-          direccion: '',
-          estado: 'ACTIVO',
-          condicion: 'HABIDO'
+          estado: "ACTIVO",
+          condicion: "HABIDO",
         };
-      }
+      },
     },
     {
-      name: 'dniruc.apisperu.com',
+      name: "dniruc.apisperu.com",
       url: `https://dniruc.apisperu.com/api/v1/dni/${dni}`,
+      headers: { Authorization: `Bearer ${tokenAPISPERU}` },
       transform: (data) => {
-        const nombreCompleto = `${data.nombres || ''} ${data.apellidoPaterno || ''} ${data.apellidoMaterno || ''}`.trim();
+        const nombreCompleto = `${data.nombres || ""} ${data.apellidoPaterno || ""} ${data.apellidoMaterno || ""}`.trim();
         return {
           numero: dni,
-          tipoDocumento: 'DNI',
+          tipoDocumento: "DNI",
           nombre: nombreCompleto,
           razonSocial: nombreCompleto,
-          direccion: '',
-          estado: 'ACTIVO',
-          condicion: 'HABIDO'
+          estado: "ACTIVO",
+          condicion: "HABIDO",
         };
-      }
-    }
+      },
+    },
   ];
 
   let lastError = null;
 
   for (const api of apis) {
     try {
-      console.log(`Intentando consultar DNI en ${api.name}...`);
-      
+      console.log(`🔍 Consultando DNI en ${api.name}...`);
       const response = await axios.get(api.url, {
         timeout: 8000,
         headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+          ...api.headers,
+          Accept: "application/json",
+          "User-Agent": "Mozilla/5.0",
+        },
       });
 
-      if (response.data && (response.data.nombres || response.data.nombre_completo || response.data.data)) {
+      if (
+        response.data &&
+        (response.data.nombres ||
+          response.data.nombre_completo ||
+          response.data.data)
+      ) {
         const datos = api.transform(response.data);
-        
-        if (datos.nombre && datos.nombre.trim() !== '') {
+        if (datos.nombre && datos.nombre.trim() !== "") {
           console.log(`✅ DNI encontrado en ${api.name}`);
-          return {
-            success: true,
-            data: datos
-          };
+          return { success: true, data: datos };
         }
       }
     } catch (error) {
       console.log(`❌ Error en ${api.name}:`, error.message);
       lastError = error;
-      continue;
     }
   }
 
-  throw lastError || new Error('No se pudo consultar el DNI en ninguna API');
+  throw lastError || new Error("No se pudo consultar el DNI en ninguna API");
 };
 
-/**
- * Controlador principal para consultar RUC o DNI
- */
+// -------- CONTROLADOR PRINCIPAL --------
 export const consultarRUC = async (req, res) => {
   try {
-    console.log('📥 Solicitud de consulta recibida:', req.body);
-    
     const { numero } = req.body;
 
-    // Validación de entrada
-    if (!numero) {
-      console.log('❌ No se proporcionó número');
-      return res.status(400).json({
-        success: false,
-        message: 'Debe proporcionar un número de RUC o DNI'
-      });
-    }
+    if (!numero)
+      return res
+        .status(400)
+        .json({ success: false, message: "Debe proporcionar un número" });
 
     const numeroLimpio = numero.toString().trim();
-    console.log('🔍 Consultando número:', numeroLimpio);
 
-    // Validar formato
-    if (numeroLimpio.length !== 11 && numeroLimpio.length !== 8) {
-      console.log('❌ Formato inválido');
+    if (numeroLimpio.length !== 8 && numeroLimpio.length !== 11)
       return res.status(400).json({
         success: false,
-        message: 'El número debe tener 8 dígitos (DNI) o 11 dígitos (RUC)'
+        message: "El número debe tener 8 dígitos (DNI) o 11 (RUC)",
       });
-    }
 
-    let resultado;
+    const resultado =
+      numeroLimpio.length === 11
+        ? await consultarRUCConFallback(numeroLimpio)
+        : await consultarDNIConFallback(numeroLimpio);
 
-    // Consultar según el tipo de documento
-    if (numeroLimpio.length === 11) {
-      console.log('📋 Consultando RUC...');
-      resultado = await consultarRUCConFallback(numeroLimpio);
-    } else {
-      console.log('🆔 Consultando DNI...');
-      resultado = await consultarDNIConFallback(numeroLimpio);
-    }
-
-    if (resultado.success) {
-      console.log('✅ Consulta exitosa:', resultado.data);
-      return res.status(200).json(resultado);
-    } else {
-      console.log('⚠️ No se encontraron datos');
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para el número proporcionado'
-      });
-    }
-
+    res.status(200).json(resultado);
   } catch (error) {
-    console.error('❌ Error en consultarRUC:', error);
-    console.error('Stack trace:', error.stack);
-
-    // Manejo de errores específicos
-    if (error.code === 'ECONNABORTED') {
-      return res.status(504).json({
-        success: false,
-        message: 'Tiempo de espera agotado. Intente nuevamente.'
-      });
-    }
-
-    if (error.code === 'ENOTFOUND' || error.code === 'EAI_AGAIN') {
-      return res.status(503).json({
-        success: false,
-        message: 'No se pudo conectar con el servicio de consulta. Verifique su conexión a internet.'
-      });
-    }
-
-    if (error.response?.status === 404) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para el número proporcionado'
-      });
-    }
-
-    if (error.response?.status === 429) {
-      return res.status(429).json({
-        success: false,
-        message: 'Demasiadas consultas. Por favor espere un momento e intente nuevamente.'
-      });
-    }
-
-    return res.status(500).json({
+    console.error("❌ Error en consultarRUC:", error.message);
+    res.status(500).json({
       success: false,
-      message: 'Error al consultar los datos. Por favor intente nuevamente.',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno del servidor',
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: "Error al consultar los datos",
+      error: error.message,
     });
   }
 };
