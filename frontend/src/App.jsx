@@ -10,30 +10,42 @@ import ProductosList from './pages/ProductosList';
 import './App.css';
 
 function App() {
+  const isAuthenticated = authService.estaAutenticado();
+
   return (
     <BrowserRouter>
       <div className="app-container">
         <main className="app-main">
           <Routes>
-            {/* Rutas públicas */}
-            <Route 
-              path="/login" 
+            {/* Página raíz: decide a dónde ir según autenticación */}
+            <Route
+              path="/"
               element={
-                authService.estaAutenticado() ? 
-                <Navigate to="/empresas" replace /> : 
-                <Login />
-              } 
-            />
-            <Route 
-              path="/registro" 
-              element={
-                authService.estaAutenticado() ? 
-                <Navigate to="/empresas" replace /> : 
-                <Registro />
-              } 
+                isAuthenticated ? (
+                  <Navigate to="/empresas" replace />
+                ) : (
+                  <Navigate to="/login" replace />
+                )
+              }
             />
 
-            {/* Rutas protegidas */}
+            {/* Login */}
+            <Route
+              path="/login"
+              element={
+                isAuthenticated ? <Navigate to="/empresas" replace /> : <Login />
+              }
+            />
+
+            {/* Registro */}
+            <Route
+              path="/registro"
+              element={
+                isAuthenticated ? <Navigate to="/empresas" replace /> : <Registro />
+              }
+            />
+
+            {/* === RUTAS PROTEGIDAS === */}
             <Route
               path="/empresas"
               element={
@@ -42,8 +54,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            
-            {/* Lista de precios (productos) por empresa */}
+
             <Route
               path="/productos/:empresaId"
               element={
@@ -53,7 +64,6 @@ function App() {
               }
             />
 
-            {/* Documentos emitidos por empresa */}
             <Route
               path="/documentos/:empresaId"
               element={
@@ -63,7 +73,6 @@ function App() {
               }
             />
 
-            {/* Emitir comprobante */}
             <Route
               path="/emitir/:empresaId"
               element={
@@ -73,10 +82,12 @@ function App() {
               }
             />
 
-            {/* Redirección por defecto */}
-            <Route 
-              path="*" 
-              element={<Navigate to="/empresas" replace />} 
+            {/* Cualquier otra ruta → si está logueado va a empresas, si no al login */}
+            <Route
+              path="*"
+              element={
+                <Navigate to={isAuthenticated ? "/empresas" : "/login"} replace />
+              }
             />
           </Routes>
         </main>
