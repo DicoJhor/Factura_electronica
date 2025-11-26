@@ -6,9 +6,17 @@ export default defineConfig({
   base: '/',
   build: {
     outDir: 'dist',
-    // ← Estas 3 líneas salvan el build en Vercel con Vite 7+
-    minify: false,           // evita que Terser se cuelgue
-    cssMinify: false,        // evita que cssnano se cuelgue
-    reportCompressedSize: false   // ← esta es la que mata el build en Vercel
+    minify: false,
+    cssMinify: false,
+    reportCompressedSize: false,
+    sourcemap: true,                  // ← esto hace que el error aparezca claro
+    rollupOptions: {
+      onwarn(warning, handler) {
+        // Muestra TODOS los warnings (normalmente Vite los esconde)
+        console.log('VITE WARNING →', warning.message)
+        if (warning.code === 'MODULE_LEVEL_DIRECTIVE') return
+        handler(warning)
+      }
+    }
   }
 })
