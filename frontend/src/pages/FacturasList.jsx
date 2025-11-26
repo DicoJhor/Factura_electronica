@@ -174,7 +174,7 @@ const FacturasList = () => {
                       {factura.pdf && (
                         <a
                           // CORRECCIÓN APLICADA AQUÍ (Línea 176)
-                          href={"http://localhost:4000" + factura.pdf}
+                          href={`http://localhost:4000${factura.pdf}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="btn-icon btn-pdf"
