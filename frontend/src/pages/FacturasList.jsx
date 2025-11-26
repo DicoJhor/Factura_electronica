@@ -172,6 +172,7 @@ const FacturasList = () => {
                     </td>
                     <td className="acciones">
                       {factura.pdf && (
+                        <a
                         
                           href={`http://localhost:4000${factura.pdf}`}
                           target="_blank"
