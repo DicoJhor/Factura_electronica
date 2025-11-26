@@ -1,34 +1,88 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Navbar from "./components/Navbar";
-import ComprobanteForm from "./pages/ComprobanteForm";
-import FacturasList from "./pages/FacturasList";
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { authService } from './services/authService';
+import ProtectedRoute from './components/ProtectedRoute';
+import Login from './pages/Login';
+import Registro from './pages/Registro';
+import MisEmpresas from './pages/MisEmpresas';
+import FacturasList from './pages/FacturasList';
+import ComprobanteForm from './pages/ComprobanteForm';
+import ProductosList from './pages/ProductosList';
+import './App.css';
 
-const App = () => {
-  return (
-    <BrowserRouter>
-      {/* min-h-screen y flex-col son para el layout, el fondo viene de app.css */}
-      <div className="min-h-screen flex flex-col"> 
-        <Navbar />
-        
-        {/* Contenedor principal de la aplicación: items-start mantiene el contenido arriba */}
-        <main className="flex-grow flex justify-center items-start px-4 sm:px-6 lg:px-8 py-8 md:py-12">
-          
-          {/* Tarjeta de Contenido: Sombra profunda y esquinas redondeadas elegantes */}
-          <div className="w-full max-w-7xl bg-white shadow-2xl rounded-xl p-6 lg:p-10 border border-gray-50">
-            <Routes>
-              <Route path="/emitir" element={<ComprobanteForm />} />
-              <Route path="/facturas" element={<FacturasList />} />
-            </Routes>
-          </div>
-        </main>
+function App() {
+  return (
+    <BrowserRouter>
+      <div className="app-container">
+        <main className="app-main">
+          <Routes>
+            {/* Rutas públicas */}
+            <Route 
+              path="/login" 
+              element={
+                authService.estaAutenticado() ? 
+                <Navigate to="/empresas" replace /> : 
+                <Login />
+              } 
+            />
+            <Route 
+              path="/registro" 
+              element={
+                authService.estaAutenticado() ? 
+                <Navigate to="/empresas" replace /> : 
+                <Registro />
+              } 
+            />
 
-        {/* Footer con fondo ligeramente transparente y shadow-inner sutil */}
-        <footer className="text-center text-sm text-gray-500 py-4 border-t border-gray-200 bg-white/70 backdrop-blur-sm shadow-inner">
-          © {new Date().getFullYear()} Facturador Beta — Todos los derechos reservados.
-        </footer>
-      </div>
-    </BrowserRouter>
-  );
-};
+            {/* Rutas protegidas */}
+            <Route
+              path="/empresas"
+              element={
+                <ProtectedRoute>
+                  <MisEmpresas />
+                </ProtectedRoute>
+              }
+            />
+            
+            {/* Lista de precios (productos) por empresa */}
+            <Route
+              path="/productos/:empresaId"
+              element={
+                <ProtectedRoute>
+                  <ProductosList />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Documentos emitidos por empresa */}
+            <Route
+              path="/documentos/:empresaId"
+              element={
+                <ProtectedRoute>
+                  <FacturasList />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Emitir comprobante */}
+            <Route
+              path="/emitir/:empresaId"
+              element={
+                <ProtectedRoute>
+                  <ComprobanteForm />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Redirección por defecto */}
+            <Route 
+              path="*" 
+              element={<Navigate to="/empresas" replace />} 
+            />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
+  );
+}
 
 export default App;

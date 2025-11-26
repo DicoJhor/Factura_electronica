@@ -1,26 +1,36 @@
-// frontend/src/services/facturaService.js
-import api from "./api";
+import api from './api';
 
-// Obtener todos los productos
-export const getProductos = async () => {
-  const res = await api.get("/productos");
-  return res.data;
-};
+export const facturaService = {
+  // Listar todas las facturas de una empresa
+  listar: async (empresaId) => {
+    const response = await api.get(`/facturas?empresaId=${empresaId}`);
+    return response.data;
+  },
 
-// Crear nueva factura (boleta)
-export const crearFactura = async (factura) => {
-  const res = await api.post("/facturas", factura);
-  return res.data;
-};
+  // Obtener una factura por ID
+  obtenerPorId: async (id) => {
+    const response = await api.get(`/facturas/${id}`);
+    return response.data;
+  },
 
-// Enviar factura a SUNAT
-export const enviarFacturaSunat = async (idFactura) => {
-  const res = await api.post(`/sunat/enviar/${idFactura}`);
-  return res.data;
-};
+  // Emitir nueva factura
+  emitir: async (empresaId, facturaData) => {
+    const response = await api.post(`/facturas`, {
+      empresaId,
+      ...facturaData
+    });
+    return response.data;
+  },
 
-// Obtener lista de facturas emitidas
-export const getFacturas = async () => {
-  const res = await api.get("/facturas");
-  return res.data;
+  // Consultar RUC/DNI en SUNAT
+  consultarSunat: async (numero) => {
+    const response = await api.post('/sunat/consultar-ruc', { numero });
+    return response.data;
+  },
+
+  // Reenviar comprobante a SUNAT
+  reenviar: async (comprobanteId) => {
+    const response = await api.post('/sunat/reenviar', { comprobanteId });
+    return response.data;
+  }
 };
