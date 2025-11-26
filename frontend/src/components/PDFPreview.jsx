@@ -4,7 +4,7 @@ const PDFPreview = ({ factura }) => {
   const iframeRef = useRef(null);
 
   // URL de tu backend en Railway
-  const BASE_URL = "https://facturaelectronica-production.up.railway.app";
+  const BASE_URL = "https://factura-electronica-t1xy.onrender.com";
 
   useEffect(() => {
     if (!factura || !factura.cliente) return;

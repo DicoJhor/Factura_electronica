@@ -1,30 +1,22 @@
 import axios from 'axios';
 
-// Detectar automáticamente el entorno
+// URL base SIN el /api al final
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
+// Siempre agregamos /api al final
 const getBaseURL = () => {
-  // Si estamos en producción, usar la URL de Render
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  
-  // Si estamos en desarrollo
-  if (import.meta.env.DEV) {
-    return 'http://localhost:4000/api';
-  }
-  
-  // Fallback
-  return 'http://localhost:4000/api';
+  return `${API_BASE.endsWith('/') ? API_BASE.slice(0, -1) : API_BASE}/api`;
 };
 
 const api = axios.create({
-  baseURL: getBaseURL(),
-  timeout: 30000, // 30 segundos (Render puede tardar en despertar)
+  baseURL: getBaseURL(),        // → ahora sí: https://...onrender.com/api
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Interceptor para añadir el token a cada petición
+// Interceptor para añadir token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -33,47 +25,27 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Interceptor para manejar errores de autenticación
+// Interceptor manejar errores
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Error 401: Token inválido o expirado
     if (error.response?.status === 401) {
       const currentPath = window.location.pathname;
-      // Solo redirigir si no estamos ya en login
       if (currentPath !== '/login' && currentPath !== '/registro') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('usuario');
-        localStorage.removeItem('empresaActiva');
+        localStorage.clear();
         window.location.href = '/login';
       }
     }
     
-    // Error de red o timeout
     if (error.code === 'ECONNABORTED' || error.message === 'Network Error') {
-      console.error('❌ Error de conexión con el servidor');
+      console.error('Backend dormido o sin conexión (Render free tier normal)');
     }
     
     return Promise.reject(error);
   }
 );
-
-// Función auxiliar para verificar si la API está disponible
-export const checkAPIHealth = async () => {
-  try {
-    const response = await axios.get(`${getBaseURL().replace('/api', '')}/api/health`, {
-      timeout: 5000
-    });
-    return response.data;
-  } catch (error) {
-    console.error('API Health Check failed:', error);
-    return null;
-  }
-};
 
 export default api;
