@@ -173,8 +173,7 @@ const FacturasList = () => {
                     <td className="acciones">
                       {factura.pdf && (
                         <a
-                          // CORRECCIÓN APLICADA AQUÍ (Línea 176)
-                          href={`http://localhost:4000${factura.pdf}`}
+                          href={`http://localhost:4000${factura.pedf}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="btn-icon btn-pdf"
