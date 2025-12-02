@@ -119,18 +119,33 @@ export const emitirFactura = async (req, res) => {
         if (productosGenericos.length > 0) {
           productoId = productosGenericos[0].id;
         } else {
-          // Crear un producto genérico si no existe ninguno
+          // 🔧 Crear un producto genérico con las columnas correctas
           const [resultProducto] = await pool.query(
-            `INSERT INTO productos (empresa_id, nombre, codigo, precio, activo, creado_en) 
-             VALUES (?, 'PRODUCTO GENÉRICO', 'GEN-001', 0, 1, NOW())`,
-            [body.empresa_id]
+            `INSERT INTO productos (
+              empresa_id, codigo, nombre, descripcion, precio, 
+              stock, stock_minimo, unidad_medida, afecto_igv, estado, creado_en
+            ) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [
+              body.empresa_id, 
+              'GEN-001', 
+              'PRODUCTO GENÉRICO', 
+              'Producto genérico para comprobantes', 
+              0, 
+              0, 
+              0, 
+              'NIU', 
+              1, 
+              'activo'
+            ]
           );
           productoId = resultProducto.insertId;
+          console.log(`✅ Producto genérico creado: ID ${productoId}`);
         }
       }
 
       await agregarDetalle(comprobanteId, {
-        producto_id: productoId, // 🔧 Ahora siempre tendrá un ID válido
+        producto_id: productoId,
         cantidad: item.cantidad,
         unidad_medida: item.unidad_medida || 'NIU',
         descripcion: item.descripcion,
