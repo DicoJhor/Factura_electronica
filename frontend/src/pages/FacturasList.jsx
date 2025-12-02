@@ -2,8 +2,8 @@ import './FacturasList.css';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import { empresaService } from '../services/empresaService'; // 🔧 Corregido
-import { facturaService } from '../services/facturaService'; // 🔧 Corregido
+import { empresaService } from '../services/empresaService';
+import { facturaService } from '../services/facturaService';
 
 const FacturasList = () => {
   const { empresaId } = useParams();
@@ -22,20 +22,20 @@ const FacturasList = () => {
   const cargarDatos = async () => {
     try {
       setCargando(true);
-      console.log('🔄 Cargando datos para empresa:', empresaId); // 🔧 Debug
+      console.log('🔄 Cargando datos para empresa:', empresaId);
       
       const [empresaData, facturasData] = await Promise.all([
         empresaService.obtenerPorId(empresaId),
         facturaService.listar(empresaId)
       ]);
 
-      console.log('✅ Empresa cargada:', empresaData); // 🔧 Debug
-      console.log('✅ Facturas cargadas:', facturasData); // 🔧 Debug
+      console.log('✅ Empresa cargada:', empresaData);
+      console.log('✅ Facturas cargadas:', facturasData);
 
       setEmpresa(empresaData);
-      setFacturas(facturasData.data || facturasData || []); // 🔧 Manejo seguro
+      setFacturas(facturasData.data || facturasData || []);
     } catch (error) {
-      console.error('❌ Error al cargar datos:', error); // 🔧 Debug
+      console.error('❌ Error al cargar datos:', error);
       setError('Error al cargar los documentos: ' + error.message);
     } finally {
       setCargando(false);
@@ -194,7 +194,7 @@ const FacturasList = () => {
 
                     <td className="acciones">
                       {factura.pdf && (
-                        
+                        <a
                           href={`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}${factura.pdf}`}
                           target="_blank"
                           rel="noopener noreferrer"
