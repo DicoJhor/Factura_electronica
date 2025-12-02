@@ -5,6 +5,7 @@ import Login from './pages/Login.jsx';
 import Registro from './pages/Registro.jsx';
 import MisEmpresas from './pages/MisEmpresas.jsx';
 import FacturasList from './pages/FacturasList.jsx';
+import NuevaEmpresa from './pages/NuevaEmpresa'; // ← NUEVO
 import ComprobanteForm from './pages/ComprobanteForm.jsx';
 import ProductosList from './pages/productosList.jsx';
 import './App.css';
