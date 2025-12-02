@@ -42,8 +42,7 @@ const descargarConAuth = (url, username, password) => {
 };
 
 export const enviarFacturaASunat = async (zipPath, zipName) => {
-  let wsdlTempPath = null;
-  let wsdlImportPath = null;
+  let archivosTemporales = [];
 
   try {
     console.log("Iniciando envío a SUNAT...");
@@ -64,7 +63,6 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
         : "https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService";
 
     const wsdlURL = `${baseURL}?wsdl`;
-    const wsdlImportURL = `${baseURL}?ns1.wsdl`;
 
     console.log("WSDL Base:", wsdlURL);
 
@@ -79,27 +77,57 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       fs.mkdirSync(tempFolder, { recursive: true });
     }
 
+    // 🆕 Descargar WSDL principal
     console.log("Descargando WSDL principal...");
     let wsdlContent = await descargarConAuth(wsdlURL, username, password);
     console.log("WSDL principal descargado");
 
-    console.log("Descargando WSDL importado (ns1.wsdl)...");
-    const wsdlImportContent = await descargarConAuth(wsdlImportURL, username, password);
-    console.log("WSDL importado descargado");
+    // 🆕 Buscar y descargar todos los archivos importados (WSDL y XSD)
+    const importRegex = /(import|include)\s+.*?location="([^"]+)"/g;
+    let match;
+    const archivosADescargar = [];
 
-    wsdlImportPath = path.join(tempFolder, "billService_ns1.wsdl");
-    fs.writeFileSync(wsdlImportPath, wsdlImportContent);
+    while ((match = importRegex.exec(wsdlContent)) !== null) {
+      const archivoImportado = match[2];
+      if (!archivoImportado.startsWith('http')) {
+        archivosADescargar.push(archivoImportado);
+      }
+    }
 
-    // 🔧 CORRECCIÓN: Quitar el prefijo "file:///"
-    wsdlContent = wsdlContent.replace(
-      'location="billService?ns1.wsdl"',
-      `location="${wsdlImportPath.replace(/\\/g, "/")}"`
-    );
+    console.log(`📦 Archivos a descargar: ${archivosADescargar.length}`);
 
-    wsdlTempPath = path.join(tempFolder, "billService.wsdl");
+    // Descargar todos los archivos importados
+    for (const archivo of archivosADescargar) {
+      try {
+        const urlCompleta = `${baseURL}?${archivo}`;
+        console.log(`Descargando: ${archivo}...`);
+        
+        const contenido = await descargarConAuth(urlCompleta, username, password);
+        
+        const rutaLocal = path.join(tempFolder, archivo.split('/').pop());
+        fs.writeFileSync(rutaLocal, contenido);
+        archivosTemporales.push(rutaLocal);
+        
+        console.log(`✅ Descargado: ${archivo}`);
+        
+        // 🔧 Reemplazar la referencia en el WSDL
+        const nombreArchivo = archivo.split('/').pop();
+        wsdlContent = wsdlContent.replace(
+          new RegExp(`location="${archivo}"`, 'g'),
+          `location="${rutaLocal.replace(/\\/g, "/")}"`
+        );
+      } catch (err) {
+        console.warn(`⚠️ No se pudo descargar ${archivo}:`, err.message);
+      }
+    }
+
+    // Guardar WSDL modificado
+    const wsdlTempPath = path.join(tempFolder, "billService.wsdl");
     fs.writeFileSync(wsdlTempPath, wsdlContent);
+    archivosTemporales.push(wsdlTempPath);
     console.log("WSDL guardado temporalmente en:", wsdlTempPath);
 
+    // Crear cliente SOAP
     const client = await soap.createClientAsync(wsdlTempPath, {
       endpoint: baseURL,
       wsdl_options: {
@@ -151,7 +179,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     }
 
     if (response.applicationResponse) {
-      console.log("SUNAT aceptó el comprobante");
+      console.log("✅ SUNAT aceptó el comprobante");
 
       const cdrData = Buffer.from(response.applicationResponse, "base64");
 
@@ -224,14 +252,13 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     };
 
   } finally {
+    // 🔧 Limpiar TODOS los archivos temporales
     try {
-      if (wsdlTempPath && fs.existsSync(wsdlTempPath)) {
-        fs.unlinkSync(wsdlTempPath);
-        console.log("WSDL temporal eliminado");
-      }
-      if (wsdlImportPath && fs.existsSync(wsdlImportPath)) {
-        fs.unlinkSync(wsdlImportPath);
-        console.log("WSDL importado eliminado");
+      for (const archivo of archivosTemporales) {
+        if (fs.existsSync(archivo)) {
+          fs.unlinkSync(archivo);
+          console.log(`🗑️ Eliminado: ${path.basename(archivo)}`);
+        }
       }
     } catch (cleanupErr) {
       console.warn("No se pudieron eliminar archivos temporales:", cleanupErr.message);
