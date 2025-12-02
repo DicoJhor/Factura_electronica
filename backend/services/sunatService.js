@@ -1,7 +1,10 @@
-const axios = require('axios');
-const fs = require('fs').promises;
-const path = require('path');
-const { parseStringPromise } = require('xml2js');
+// backend/services/sunatService.js
+
+import axios from 'axios';
+import fs from 'fs/promises';
+import path from 'path';
+import { parseStringPromise } from 'xml2js';
+import AdmZip from 'adm-zip';
 
 class SunatService {
   constructor() {
@@ -10,35 +13,42 @@ class SunatService {
       beta: 'https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService',
       produccion: 'https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService'
     };
+
+    // Credenciales desde variables de entorno
+    this.rucEmisor = process.env.SUNAT_RUC || '';
+    this.usuarioSol = process.env.SUNAT_USUARIO_SOL || 'MODDATOS';
+    this.claveSol = process.env.SUNAT_CLAVE_SOL || 'MODDATOS';
+    this.ambiente = process.env.SUNAT_AMBIENTE || 'beta';
   }
 
   /**
    * Envía un comprobante electrónico a SUNAT
+   * @param {string} zipPath - Ruta al archivo ZIP con el XML
+   * @param {string} nombreArchivo - Nombre del archivo (sin extensión .zip)
    */
-  async enviarComprobante(options) {
-    const {
-      zipBase64,
-      nombreArchivo,
-      rucEmisor,
-      usuarioSol,
-      claveSol,
-      ambiente = 'beta'
-    } = options;
-
+  async enviarComprobante(zipPath, nombreArchivo) {
     try {
       console.log('📤 Enviando comprobante a SUNAT:', nombreArchivo);
 
-      // Construir el SOAP Envelope manualmente
+      // Leer el archivo ZIP y convertir a Base64
+      const zipBuffer = await fs.readFile(zipPath);
+      const zipBase64 = zipBuffer.toString('base64');
+
+      // Eliminar la extensión .zip si viene en el nombre
+      const nombreSinExtension = nombreArchivo.replace('.zip', '');
+
+      // Construir el SOAP Envelope
       const soapEnvelope = this.construirSoapEnvelope({
         zipBase64,
-        nombreArchivo,
-        rucEmisor,
-        usuarioSol,
-        claveSol
+        nombreArchivo: nombreSinExtension,
+        rucEmisor: this.rucEmisor,
+        usuarioSol: this.usuarioSol,
+        claveSol: this.claveSol
       });
 
       // URL según ambiente
-      const url = this.urls[ambiente];
+      const url = this.urls[this.ambiente];
+      console.log(`🌐 Enviando a: ${url}`);
 
       // Enviar request HTTP directo
       const response = await axios.post(url, soapEnvelope, {
@@ -46,31 +56,44 @@ class SunatService {
           'Content-Type': 'text/xml;charset=UTF-8',
           'SOAPAction': 'urn:sendBill'
         },
-        timeout: 30000 // 30 segundos
+        timeout: 60000, // 60 segundos
+        validateStatus: () => true // Aceptar cualquier status para manejar errores manualmente
       });
 
-      console.log('✅ Respuesta recibida de SUNAT');
+      console.log(`✅ Respuesta recibida de SUNAT (Status: ${response.status})`);
 
-      // Parsear respuesta SOAP
+      // Si el status no es 200, intentar parsear el error
+      if (response.status !== 200) {
+        const errorInfo = await this.parsearErrorSunat(response.data);
+        throw new Error(`Error SUNAT (${response.status}): ${errorInfo.mensaje}`);
+      }
+
+      // Parsear respuesta SOAP exitosa
       const resultado = await this.parsearRespuestaSunat(response.data);
 
-      return resultado;
+      // Guardar el CDR (Constancia de Recepción)
+      if (resultado.cdrBuffer) {
+        const cdrPath = zipPath.replace('.zip', '-CDR.zip');
+        await fs.writeFile(cdrPath, resultado.cdrBuffer);
+        console.log('💾 CDR guardado en:', cdrPath);
+        resultado.cdrPath = cdrPath;
+      }
+
+      return {
+        success: true,
+        message: resultado.mensajeRespuesta,
+        codigoRespuesta: resultado.codigoRespuesta,
+        cdrPath: resultado.cdrPath
+      };
 
     } catch (error) {
       console.error('❌ Error al enviar a SUNAT:', error.message);
       
-      if (error.response) {
-        console.error('Respuesta de error:', error.response.data);
-        // Intentar parsear el error SOAP
-        try {
-          const errorSunat = await this.parsearErrorSunat(error.response.data);
-          throw new Error(`Error SUNAT: ${errorSunat.mensaje} (Código: ${errorSunat.codigo})`);
-        } catch (parseError) {
-          throw new Error(`Error HTTP ${error.response.status}: ${error.response.statusText}`);
-        }
-      }
-      
-      throw error;
+      return {
+        success: false,
+        message: error.message,
+        error: error
+      };
     }
   }
 
@@ -78,28 +101,25 @@ class SunatService {
    * Construye el SOAP Envelope para sendBill
    */
   construirSoapEnvelope({ zipBase64, nombreArchivo, rucEmisor, usuarioSol, claveSol }) {
-    // Credenciales en formato Base64
-    const credenciales = Buffer.from(`${rucEmisor}${usuarioSol}:${claveSol}`).toString('base64');
-
     return `<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
-               xmlns:ser="http://service.sunat.gob.pe">
-  <soap:Header>
-    <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" 
-                   xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
+                  xmlns:ser="http://service.sunat.gob.pe" 
+                  xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+  <soapenv:Header>
+    <wsse:Security>
       <wsse:UsernameToken>
         <wsse:Username>${rucEmisor}${usuarioSol}</wsse:Username>
-        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">${claveSol}</wsse:Password>
+        <wsse:Password>${claveSol}</wsse:Password>
       </wsse:UsernameToken>
     </wsse:Security>
-  </soap:Header>
-  <soap:Body>
+  </soapenv:Header>
+  <soapenv:Body>
     <ser:sendBill>
-      <fileName>${nombreArchivo}</fileName>
+      <fileName>${nombreArchivo}.zip</fileName>
       <contentFile>${zipBase64}</contentFile>
     </ser:sendBill>
-  </soap:Body>
-</soap:Envelope>`;
+  </soapenv:Body>
+</soapenv:Envelope>`;
   }
 
   /**
@@ -110,7 +130,7 @@ class SunatService {
       const parsed = await parseStringPromise(xmlResponse, {
         explicitArray: false,
         ignoreAttrs: false,
-        tagNameProcessors: [name => name.replace(/^.*:/, '')] // Remueve namespace prefixes
+        tagNameProcessors: [(name) => name.replace(/^.*:/, '')] // Remueve namespace prefixes
       });
 
       // Navegar por la respuesta SOAP
@@ -130,16 +150,42 @@ class SunatService {
 
       // El CDR (Constancia de Recepción) viene en Base64
       const cdrBase64 = applicationResponse;
-
-      // Decodificar para obtener información
       const cdrBuffer = Buffer.from(cdrBase64, 'base64');
+
+      // Extraer información del CDR (opcional)
+      let codigoRespuesta = '0';
+      let mensajeRespuesta = 'Comprobante aceptado por SUNAT';
+
+      try {
+        const zip = new AdmZip(cdrBuffer);
+        const zipEntries = zip.getEntries();
+        
+        for (const entry of zipEntries) {
+          if (entry.entryName.endsWith('.xml')) {
+            const cdrXml = entry.getData().toString('utf8');
+            const cdrParsed = await parseStringPromise(cdrXml, {
+              explicitArray: false,
+              tagNameProcessors: [(name) => name.replace(/^.*:/, '')]
+            });
+
+            // Extraer código y mensaje de respuesta
+            const response = cdrParsed.ApplicationResponse?.DocumentResponse?.Response;
+            if (response) {
+              codigoRespuesta = response.ResponseCode || '0';
+              mensajeRespuesta = response.Description || 'Aceptado';
+            }
+          }
+        }
+      } catch (cdrError) {
+        console.warn('⚠️ No se pudo extraer detalles del CDR:', cdrError.message);
+      }
 
       return {
         exito: true,
-        codigoRespuesta: '0', // Aceptado
-        mensajeRespuesta: 'Comprobante aceptado por SUNAT',
-        cdrBase64: cdrBase64,
-        cdrBuffer: cdrBuffer
+        codigoRespuesta,
+        mensajeRespuesta,
+        cdrBase64,
+        cdrBuffer
       };
 
     } catch (error) {
@@ -155,7 +201,7 @@ class SunatService {
     try {
       const parsed = await parseStringPromise(xmlResponse, {
         explicitArray: false,
-        tagNameProcessors: [name => name.replace(/^.*:/, '')]
+        tagNameProcessors: [(name) => name.replace(/^.*:/, '')]
       });
 
       const fault = parsed.Envelope?.Body?.Fault;
@@ -188,37 +234,35 @@ class SunatService {
       rucEmisor,
       tipoComprobante,
       serie,
-      numero,
-      usuarioSol,
-      claveSol,
-      ambiente = 'beta'
+      numero
     } = options;
 
     try {
       console.log(`📋 Consultando estado: ${tipoComprobante}-${serie}-${numero}`);
 
       const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
-               xmlns:ser="http://service.sunat.gob.pe">
-  <soap:Header>
-    <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" 
+                  xmlns:ser="http://service.sunat.gob.pe"
+                  xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+  <soapenv:Header>
+    <wsse:Security>
       <wsse:UsernameToken>
-        <wsse:Username>${rucEmisor}${usuarioSol}</wsse:Username>
-        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">${claveSol}</wsse:Password>
+        <wsse:Username>${this.rucEmisor}${this.usuarioSol}</wsse:Username>
+        <wsse:Password>${this.claveSol}</wsse:Password>
       </wsse:UsernameToken>
     </wsse:Security>
-  </soap:Header>
-  <soap:Body>
+  </soapenv:Header>
+  <soapenv:Body>
     <ser:getStatus>
       <rucComprobante>${rucEmisor}</rucComprobante>
       <tipoComprobante>${tipoComprobante}</tipoComprobante>
       <serieComprobante>${serie}</serieComprobante>
       <numeroComprobante>${numero}</numeroComprobante>
     </ser:getStatus>
-  </soap:Body>
-</soap:Envelope>`;
+  </soapenv:Body>
+</soapenv:Envelope>`;
 
-      const url = this.urls[ambiente];
+      const url = this.urls[this.ambiente];
 
       const response = await axios.post(url, soapEnvelope, {
         headers: {
@@ -243,7 +287,7 @@ class SunatService {
   async parsearEstado(xmlResponse) {
     const parsed = await parseStringPromise(xmlResponse, {
       explicitArray: false,
-      tagNameProcessors: [name => name.replace(/^.*:/, '')]
+      tagNameProcessors: [(name) => name.replace(/^.*:/, '')]
     });
 
     const statusResponse = parsed.Envelope?.Body?.getStatusResponse;
@@ -259,4 +303,12 @@ class SunatService {
   }
 }
 
-module.exports = new SunatService();
+// Exportar instancia única del servicio
+const sunatService = new SunatService();
+
+// Exportar la función compatible con tu código actual
+export const enviarFacturaASunat = async (zipPath, nombreArchivo) => {
+  return await sunatService.enviarComprobante(zipPath, nombreArchivo);
+};
+
+export default sunatService;
