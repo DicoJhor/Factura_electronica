@@ -1,50 +1,62 @@
-// src/services/authService.js ← versión final que nunca falla
+// src/services/authService.js
 import api from './api';
-import jwtDecode from 'jwt-decode';   // ← así, sin llaves
+import { jwtDecode } from 'jwt-decode'; // ← Con llaves { }
 
 export const authService = {
-  registro: async (datos) => {
-    const response = await api.post('/auth/registro', datos);
-    if (response.data.token) {
-      localStorage.setItem('token', response.data.token);
-      const usuario = jwtDecode(response.data.token);
+  login: async (emailOrUsuario, password) => {
+    try {
+      const response = await api.post('/auth/login', { emailOrUsuario, password });
+      const { token, usuario } = response.data;
+      
+      localStorage.setItem('token', token);
       localStorage.setItem('usuario', JSON.stringify(usuario));
+      
+      window.location.href = '/empresas';
+      return response.data;
+    } catch (error) {
+      throw error;
     }
-    return response.data;
   },
 
-  login: async (emailOrUsuario, password) => {
-    const response = await api.post('/auth/login', { emailOrUsuario, password });
-    if (response.data.token) {
-      localStorage.setItem('token', response.data.token);
-      localStorage.setItem('usuario', JSON.stringify(response.data.usuario));
+  registro: async (nombre, usuario, email, password) => {
+    try {
+      const response = await api.post('/auth/registro', { nombre, usuario, email, password });
+      const { token } = response.data;
+      
+      localStorage.setItem('token', token);
+      
+      window.location.href = '/empresas';
+      return response.data;
+    } catch (error) {
+      throw error;
     }
-    return response.data;
   },
 
   logout: () => {
-    localStorage.clear();
+    localStorage.removeItem('token');
+    localStorage.removeItem('usuario');
     window.location.href = '/login';
   },
 
   estaAutenticado: () => {
     const token = localStorage.getItem('token');
     if (!token) return false;
+
     try {
       const decoded = jwtDecode(token);
-      return decoded.exp > Date.now() / 1000;
-    } catch {
+      const ahora = Date.now() / 1000;
+      return decoded.exp > ahora;
+    } catch (error) {
       return false;
     }
   },
 
   obtenerUsuarioActual: () => {
-    const usuario = localStorage.getItem('usuario');
-    return usuario ? JSON.parse(usuario) : null;
+    const usuarioStr = localStorage.getItem('usuario');
+    return usuarioStr ? JSON.parse(usuarioStr) : null;
   },
 
-  verificarToken: async () => {
-    const response = await api.get('/auth/verificar');
-    return response.data;
+  obtenerToken: () => {
+    return localStorage.getItem('token');
   }
 };
