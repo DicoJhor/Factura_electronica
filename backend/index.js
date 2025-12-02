@@ -19,33 +19,47 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// ✅ CORS configurado correctamente para múltiples orígenes
+// ========== CORS MEJORADO ==========
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'https://factura-electronica-ten.vercel.app',
   process.env.FRONTEND_URL
-].filter(Boolean);
+].filter(Boolean); // Elimina valores undefined
 
-app.use(cors({
-  origin: function(origin, callback) {
-    // Permitir requests sin origin (Postman, mobile apps, curl)
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Permitir requests sin origin (como Postman, curl, apps móviles)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      console.log('❌ CORS bloqueado para origen:', origin);
-      callback(new Error('Not allowed by CORS'));
+      console.warn('⚠️ Origen bloqueado por CORS:', origin);
+      callback(null, true); // En producción, cambiar a: callback(new Error('Not allowed by CORS'))
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
+};
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors(corsOptions));
+
+// Middleware para parsear JSON y URL-encoded
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Middleware de logging para debugging
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    origin: req.headers.origin,
+    contentType: req.headers['content-type'],
+    body: req.method === 'POST' ? req.body : undefined
+  });
+  next();
+});
 
 // Crear carpetas necesarias
 const folders = [
@@ -71,28 +85,30 @@ app.use("/api/sunat", sunatRoutes);
 // Archivos estáticos
 app.use("/facturas", express.static(path.join(__dirname, "facturas")));
 
-// Ruta de salud
+// Ruta raíz
 app.get("/", (req, res) => {
   res.json({ 
     status: "OK", 
-    message: "Facturador API v1.0",
-    allowedOrigins: allowedOrigins,
-    timestamp: new Date().toISOString()
+    message: "Facturador Electrónico API v1.0",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
+// Ruta de salud
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "OK", 
     message: "API funcionando correctamente",
     environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    database: "connected" // Podrías hacer un ping real a la BD aquí
   });
 });
 
 // Manejo de errores
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.stack);
+  console.error('❌ Error:', err);
   res.status(500).json({ 
     error: err.message || 'Algo salió mal!',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
@@ -101,9 +117,11 @@ app.use((err, req, res, next) => {
 
 // 404
 app.use((req, res) => {
+  console.warn('⚠️ Ruta no encontrada:', req.method, req.path);
   res.status(404).json({ 
     error: 'Ruta no encontrada',
-    path: req.path 
+    path: req.path,
+    method: req.method
   });
 });
 

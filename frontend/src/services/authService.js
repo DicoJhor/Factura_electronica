@@ -1,43 +1,79 @@
-// src/services/authService.js
 import api from './api';
-import { jwtDecode } from 'jwt-decode'; // ← Con llaves { }
+import { jwtDecode } from 'jwt-decode';
 
 export const authService = {
+  // Registrar nuevo usuario
+  registro: async (datos) => {
+    try {
+      console.log('🔄 Intentando registrar usuario:', {
+        nombre: datos.nombre,
+        usuario: datos.usuario,
+        email: datos.email,
+        password: '***' // No mostrar password en logs
+      });
+
+      const response = await api.post('/auth/registro', {
+        nombre: datos.nombre,
+        usuario: datos.usuario,
+        email: datos.email,
+        password: datos.password,
+        rol: datos.rol || 'cajero'
+      });
+
+      console.log('✅ Registro exitoso:', response.data);
+
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        const usuario = jwtDecode(response.data.token);
+        localStorage.setItem('usuario', JSON.stringify(usuario));
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error en authService.registro:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      throw error;
+    }
+  },
+
+  // Login
   login: async (emailOrUsuario, password) => {
     try {
+      console.log('🔄 Intentando login:', { emailOrUsuario });
+
       const response = await api.post('/auth/login', { emailOrUsuario, password });
-      const { token, usuario } = response.data;
-      
-      localStorage.setItem('token', token);
-      localStorage.setItem('usuario', JSON.stringify(usuario));
-      
-      window.location.href = '/empresas';
+
+      console.log('✅ Login exitoso');
+
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+        localStorage.setItem('usuario', JSON.stringify(response.data.usuario));
+      }
+
       return response.data;
     } catch (error) {
+      console.error('❌ Error en authService.login:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
       throw error;
     }
   },
 
-  registro: async (nombre, usuario, email, password) => {
-    try {
-      const response = await api.post('/auth/registro', { nombre, usuario, email, password });
-      const { token } = response.data;
-      
-      localStorage.setItem('token', token);
-      
-      window.location.href = '/empresas';
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-
+  // Logout
   logout: () => {
+    console.log('👋 Cerrando sesión...');
     localStorage.removeItem('token');
     localStorage.removeItem('usuario');
+    localStorage.removeItem('empresaActiva');
     window.location.href = '/login';
   },
 
+  // Verificar si está autenticado
   estaAutenticado: () => {
     const token = localStorage.getItem('token');
     if (!token) return false;
@@ -47,16 +83,25 @@ export const authService = {
       const ahora = Date.now() / 1000;
       return decoded.exp > ahora;
     } catch (error) {
+      console.error('❌ Error al verificar token:', error);
       return false;
     }
   },
 
+  // Obtener usuario actual
   obtenerUsuarioActual: () => {
-    const usuarioStr = localStorage.getItem('usuario');
-    return usuarioStr ? JSON.parse(usuarioStr) : null;
+    const usuario = localStorage.getItem('usuario');
+    return usuario ? JSON.parse(usuario) : null;
   },
 
-  obtenerToken: () => {
-    return localStorage.getItem('token');
+  // Verificar token con el servidor
+  verificarToken: async () => {
+    try {
+      const response = await api.get('/auth/verificar');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error al verificar token:', error);
+      throw error;
+    }
   }
 };

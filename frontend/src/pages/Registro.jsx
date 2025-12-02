@@ -30,6 +30,16 @@ const Registro = () => {
       return false;
     }
 
+    if (formData.nombre.trim().length < 3) {
+      setError('El nombre debe tener al menos 3 caracteres');
+      return false;
+    }
+
+    if (formData.usuario.trim().length < 3) {
+      setError('El usuario debe tener al menos 3 caracteres');
+      return false;
+    }
+
     if (formData.password.length < 6) {
       setError('La contraseña debe tener al menos 6 caracteres');
       return false;
@@ -53,24 +63,51 @@ const Registro = () => {
     e.preventDefault();
     setError('');
 
+    console.log('🔄 Iniciando proceso de registro...');
+
     if (!validarFormulario()) {
+      console.log('❌ Validación fallida');
       return;
     }
 
     setCargando(true);
 
     try {
-      await authService.registro({
-        nombre: formData.nombre,
-        usuario: formData.usuario,
-        email: formData.email,
+      console.log('📤 Enviando datos de registro...');
+      
+      const resultado = await authService.registro({
+        nombre: formData.nombre.trim(),
+        usuario: formData.usuario.trim(),
+        email: formData.email.trim().toLowerCase(),
         password: formData.password
       });
+
+      console.log('✅ Registro completado:', resultado);
       
-      navigate('/empresas');
+      // Pequeño delay para que el usuario vea el éxito
+      setTimeout(() => {
+        navigate('/empresas');
+      }, 500);
+      
     } catch (error) {
-      console.error('Error en registro:', error);
-      setError(error.response?.data?.error || 'Error al registrar usuario');
+      console.error('❌ Error en el registro:', error);
+      
+      // Extraer el mensaje de error más específico posible
+      let mensajeError = 'Error al registrar usuario';
+      
+      if (error.response?.data?.error) {
+        mensajeError = error.response.data.error;
+      } else if (error.response?.data?.message) {
+        mensajeError = error.response.data.message;
+      } else if (error.message === 'Network Error') {
+        mensajeError = 'No se puede conectar con el servidor. Verifica tu conexión.';
+      } else if (error.code === 'ECONNABORTED') {
+        mensajeError = 'La solicitud tardó demasiado. Intenta nuevamente.';
+      } else if (error.message) {
+        mensajeError = error.message;
+      }
+      
+      setError(mensajeError);
     } finally {
       setCargando(false);
     }
@@ -102,6 +139,7 @@ const Registro = () => {
               placeholder="Juan Pérez"
               disabled={cargando}
               required
+              minLength={3}
             />
           </div>
 
@@ -117,6 +155,7 @@ const Registro = () => {
               autoComplete="username"
               disabled={cargando}
               required
+              minLength={3}
             />
           </div>
 
@@ -148,11 +187,13 @@ const Registro = () => {
                 autoComplete="new-password"
                 disabled={cargando}
                 required
+                minLength={6}
               />
               <button
                 type="button"
                 className="toggle-password"
                 onClick={() => setMostrarPassword(!mostrarPassword)}
+                tabIndex={-1}
               >
                 {mostrarPassword ? '👁️' : '👁️‍🗨️'}
               </button>
@@ -171,6 +212,7 @@ const Registro = () => {
               autoComplete="new-password"
               disabled={cargando}
               required
+              minLength={6}
             />
           </div>
 
