@@ -16,7 +16,7 @@ const ComprobanteForm = () => {
   // Estados del formulario
   const [tipoComprobante, setTipoComprobante] = useState('03'); // Boleta por defecto
   const [serie, setSerie] = useState('B001');
-  const [numero, setNumero] = useState('');
+  const [numero, setNumero] = useState(''); // Ya no se enviará
   const [tipoDocCliente, setTipoDocCliente] = useState('DNI');
   const [numeroDocCliente, setNumeroDocCliente] = useState('');
   const [nombreCliente, setNombreCliente] = useState('');
@@ -31,12 +31,8 @@ const ComprobanteForm = () => {
   }, [empresaId]);
 
   useEffect(() => {
-    // Cambiar serie según tipo de comprobante
-    if (tipoComprobante === '01') {
-      setSerie('F001');
-    } else if (tipoComprobante === '03') {
-      setSerie('B001');
-    }
+    if (tipoComprobante === '01') setSerie('F001');
+    else if (tipoComprobante === '03') setSerie('B001');
   }, [tipoComprobante]);
 
   const cargarEmpresa = async () => {
@@ -54,12 +50,11 @@ const ComprobanteForm = () => {
       setError('Ingresa un número de documento válido');
       return;
     }
-
     try {
       setCargando(true);
       setError('');
       const data = await facturaService.consultarSunat(numeroDocCliente);
-      
+
       if (data.nombre) {
         setNombreCliente(data.nombre);
         setDireccionCliente(data.direccion || '');
@@ -91,7 +86,6 @@ const ComprobanteForm = () => {
     const nuevosItems = [...items];
     nuevosItems[index][campo] = valor;
 
-    // Calcular total del item
     if (campo === 'cantidad' || campo === 'precioUnitario') {
       const cantidad = parseFloat(nuevosItems[index].cantidad) || 0;
       const precio = parseFloat(nuevosItems[index].precioUnitario) || 0;
@@ -113,7 +107,6 @@ const ComprobanteForm = () => {
     setError('');
     setExito('');
 
-    // Validaciones
     if (!nombreCliente.trim()) {
       setError('El nombre del cliente es requerido');
       return;
@@ -125,7 +118,6 @@ const ComprobanteForm = () => {
     }
 
     const { subtotal, igv, total } = calcularTotales();
-
     if (total <= 0) {
       setError('El total debe ser mayor a 0');
       return;
@@ -133,21 +125,20 @@ const ComprobanteForm = () => {
 
     try {
       setCargando(true);
-      
+
       const facturaData = {
         tipo: tipoComprobante,
         serie,
-        numero: numero || undefined,
         cliente: {
           tipoDoc: tipoDocCliente,
           numeroDoc: numeroDocCliente,
           nombre: nombreCliente,
           direccion: direccionCliente
         },
-        items: items.map(item => ({
+        detalles: items.map(item => ({
           descripcion: item.descripcion,
-          cantidad: item.cantidad,
-          precioUnitario: item.precioUnitario
+          cantidad: parseFloat(item.cantidad),
+          precio_unitario: parseFloat(item.precioUnitario)
         })),
         subtotal,
         igv,
@@ -156,16 +147,15 @@ const ComprobanteForm = () => {
       };
 
       await facturaService.emitir(empresaId, facturaData);
-      
+
       setExito('✓ Comprobante emitido correctamente');
-      
+
       setTimeout(() => {
         navigate(`/documentos/${empresaId}`);
       }, 2000);
-
     } catch (error) {
       console.error('Error al emitir comprobante:', error);
-      setError(error.response?.data?.error || 'Error al emitir el comprobante');
+      setError(error.response?.data?.message || 'Error al emitir el comprobante');
     } finally {
       setCargando(false);
     }
@@ -187,17 +177,8 @@ const ComprobanteForm = () => {
           <h2>✍️ Emitir Comprobante Electrónico</h2>
         </div>
 
-        {error && (
-          <div className="alert alert-error">
-            ⚠️ {error}
-          </div>
-        )}
-
-        {exito && (
-          <div className="alert alert-success">
-            {exito}
-          </div>
-        )}
+        {error && <div className="alert alert-error">⚠️ {error}</div>}
+        {exito && <div className="alert alert-success">{exito}</div>}
 
         <form onSubmit={handleSubmit} className="comprobante-form">
           {/* Tipo de Comprobante */}
@@ -235,6 +216,7 @@ const ComprobanteForm = () => {
                   value={numero}
                   onChange={(e) => setNumero(e.target.value)}
                   placeholder="Se generará automáticamente"
+                  disabled
                 />
               </div>
             </div>
