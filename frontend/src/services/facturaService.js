@@ -15,7 +15,7 @@ export const facturaService = {
 
   // Emitir nueva factura
   emitir: async (empresaId, facturaData) => {
-    const response = await api.post(`/facturas`, {
+    const response = await api.post('/facturas', {
       empresaId,
       ...facturaData
     });
