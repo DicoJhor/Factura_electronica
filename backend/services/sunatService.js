@@ -77,12 +77,12 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       fs.mkdirSync(tempFolder, { recursive: true });
     }
 
-    // 🆕 Descargar WSDL principal
+    // Descargar WSDL principal
     console.log("Descargando WSDL principal...");
     let wsdlContent = await descargarConAuth(wsdlURL, username, password);
     console.log("WSDL principal descargado");
 
-    // 🆕 Buscar y descargar todos los archivos importados (WSDL y XSD)
+    // 🆕 Buscar y descargar todos los archivos importados
     const importRegex = /(import|include)\s+.*?location="([^"]+)"/g;
     let match;
     const archivosADescargar = [];
@@ -104,17 +104,23 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
         
         const contenido = await descargarConAuth(urlCompleta, username, password);
         
-        const rutaLocal = path.join(tempFolder, archivo.split('/').pop());
+        // 🔧 Limpiar nombre de archivo (quitar caracteres no válidos)
+        const nombreArchivoLimpio = archivo
+          .replace(/\?/g, '_')
+          .replace(/[<>:"|*]/g, '_')
+          .split('/')
+          .pop();
+        
+        const rutaLocal = path.join(tempFolder, nombreArchivoLimpio);
         fs.writeFileSync(rutaLocal, contenido);
         archivosTemporales.push(rutaLocal);
         
-        console.log(`✅ Descargado: ${archivo}`);
+        console.log(`✅ Descargado: ${nombreArchivoLimpio}`);
         
         // 🔧 Reemplazar la referencia en el WSDL
-        const nombreArchivo = archivo.split('/').pop();
         wsdlContent = wsdlContent.replace(
-          new RegExp(`location="${archivo}"`, 'g'),
-          `location="${rutaLocal.replace(/\\/g, "/")}"`
+          `location="${archivo}"`,
+          `location="${nombreArchivoLimpio}"`
         );
       } catch (err) {
         console.warn(`⚠️ No se pudo descargar ${archivo}:`, err.message);
@@ -127,13 +133,17 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     archivosTemporales.push(wsdlTempPath);
     console.log("WSDL guardado temporalmente en:", wsdlTempPath);
 
-    // Crear cliente SOAP
+    // Crear cliente SOAP con opciones adicionales
     const client = await soap.createClientAsync(wsdlTempPath, {
       endpoint: baseURL,
       wsdl_options: {
         timeout: 60000,
+        // 🆕 Deshabilitar validación estricta
+        strict: false,
       },
       request_timeout: 60000,
+      // 🆕 Ignorar imports de esquemas externos
+      disableCache: true,
     });
 
     console.log("Cliente SOAP creado");
@@ -252,7 +262,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     };
 
   } finally {
-    // 🔧 Limpiar TODOS los archivos temporales
+    // Limpiar TODOS los archivos temporales
     try {
       for (const archivo of archivosTemporales) {
         if (fs.existsSync(archivo)) {
