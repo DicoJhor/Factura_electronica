@@ -52,9 +52,9 @@ export const emitirFactura = async (req, res) => {
       // Si vienen los datos del cliente, buscamos o creamos
       const { tipoDoc, numeroDoc, nombre, direccion } = body.cliente;
 
-      // Buscar si el cliente ya existe
+      // 🔧 Buscar si el cliente ya existe (usando numero_doc)
       const [clientesExistentes] = await pool.query(
-        'SELECT id FROM clientes WHERE documento = ? AND empresa_id = ?',
+        'SELECT id FROM clientes WHERE numero_doc = ? AND empresa_id = ?',
         [numeroDoc, body.empresa_id]
       );
 
@@ -63,10 +63,10 @@ export const emitirFactura = async (req, res) => {
         clienteId = clientesExistentes[0].id;
         console.log(`✅ Cliente existente encontrado: ID ${clienteId}`);
       } else {
-        // Crear nuevo cliente
+        // 🔧 Crear nuevo cliente (usando tipo_doc y numero_doc)
         const [resultCliente] = await pool.query(
-          `INSERT INTO clientes (empresa_id, tipo_documento, documento, nombre, direccion, creado_en) 
-           VALUES (?, ?, ?, ?, ?, NOW())`,
+          `INSERT INTO clientes (empresa_id, tipo_doc, numero_doc, nombre, direccion, activo, creado_en) 
+           VALUES (?, ?, ?, ?, ?, 1, NOW())`,
           [body.empresa_id, tipoDoc, numeroDoc, nombre, direccion || null]
         );
         clienteId = resultCliente.insertId;
@@ -80,7 +80,7 @@ export const emitirFactura = async (req, res) => {
     // 3️⃣ Armar comprobante
     const comprobanteData = {
       empresa_id: body.empresa_id,
-      cliente_id: clienteId, // 🆕 Ahora usamos el clienteId obtenido
+      cliente_id: clienteId,
       usuario_id: req.user?.id || 1,
       tipo: body.tipo || "01",
       serie: body.serie || "C001",
@@ -102,7 +102,6 @@ export const emitirFactura = async (req, res) => {
 
     // 4️⃣ Guardar detalles
     for (const item of body.detalles) {
-      // 🆕 Calculamos los valores si no vienen
       const subtotalItem = item.subtotal || (item.cantidad * item.precio_unitario);
       const igvItem = item.igv || (subtotalItem * 0.18);
       const totalItem = item.total || (subtotalItem + igvItem);
@@ -137,7 +136,7 @@ export const emitirFactura = async (req, res) => {
       serie: comprobanteData.serie,
       numero: comprobanteData.numero,
       total: comprobanteData.total,
-      cliente_id: clienteId, // 🆕 Usamos clienteId
+      cliente_id: clienteId,
       productos: body.detalles
     });
 
