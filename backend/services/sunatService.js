@@ -2,8 +2,6 @@
 
 import axios from 'axios';
 import fs from 'fs/promises';
-import path from 'path';
-import { parseStringPromise } from 'xml2js';
 import AdmZip from 'adm-zip';
 
 class SunatService {
@@ -64,12 +62,12 @@ class SunatService {
 
       // Si el status no es 200, intentar parsear el error
       if (response.status !== 200) {
-        const errorInfo = await this.parsearErrorSunat(response.data);
+        const errorInfo = this.parsearErrorSunat(response.data);
         throw new Error(`Error SUNAT (${response.status}): ${errorInfo.mensaje}`);
       }
 
       // Parsear respuesta SOAP exitosa
-      const resultado = await this.parsearRespuestaSunat(response.data);
+      const resultado = this.parsearRespuestaSunat(response.data);
 
       // Guardar el CDR (Constancia de Recepción)
       if (resultado.cdrBuffer) {
@@ -123,36 +121,65 @@ class SunatService {
   }
 
   /**
-   * Parsea la respuesta exitosa de SUNAT
+   * Parsea la respuesta exitosa de SUNAT usando regex simple
    */
-  async parsearRespuestaSunat(xmlResponse) {
+  parsearRespuestaSunat(xmlResponse) {
     try {
-      const parsed = await parseStringPromise(xmlResponse, {
-        explicitArray: false,
-        ignoreAttrs: false,
-        tagNameProcessors: [(name) => name.replace(/^.*:/, '')] // Remueve namespace prefixes
-      });
-
-      // Navegar por la respuesta SOAP
-      const body = parsed.Envelope?.Body;
-      const sendBillResponse = body?.sendBillResponse;
-
-      if (!sendBillResponse) {
-        throw new Error('Respuesta SOAP inválida: no se encontró sendBillResponse');
-      }
-
-      // Extraer datos de la respuesta
-      const applicationResponse = sendBillResponse.applicationResponse;
+      console.log('🔍 Parseando respuesta XML de SUNAT...');
       
-      if (!applicationResponse) {
-        throw new Error('No se recibió applicationResponse de SUNAT');
+      // Log parcial de la respuesta para debug (primeros 500 caracteres)
+      console.log('📄 Respuesta XML (inicio):', xmlResponse.substring(0, 500));
+
+      // Intentar diferentes patrones para encontrar el contenido Base64
+      let cdrBase64 = null;
+      
+      // Patrón 1: <applicationResponse>...</applicationResponse>
+      let match = xmlResponse.match(/<applicationResponse[^>]*>(.*?)<\/applicationResponse>/s);
+      if (match && match[1]) {
+        cdrBase64 = match[1].trim();
+        console.log('✅ Encontrado applicationResponse (patrón 1)');
+      }
+      
+      // Patrón 2: <ns2:applicationResponse>...</ns2:applicationResponse>
+      if (!cdrBase64) {
+        match = xmlResponse.match(/<[^:]+:applicationResponse[^>]*>(.*?)<\/[^:]+:applicationResponse>/s);
+        if (match && match[1]) {
+          cdrBase64 = match[1].trim();
+          console.log('✅ Encontrado applicationResponse (patrón 2 con namespace)');
+        }
+      }
+      
+      // Patrón 3: Buscar cualquier contenido Base64 largo (más de 100 caracteres)
+      if (!cdrBase64) {
+        match = xmlResponse.match(/>([A-Za-z0-9+/=]{100,})</s);
+        if (match && match[1]) {
+          cdrBase64 = match[1].trim();
+          console.log('✅ Encontrado contenido Base64 (patrón 3)');
+        }
       }
 
-      // El CDR (Constancia de Recepción) viene en Base64
-      const cdrBase64 = applicationResponse;
-      const cdrBuffer = Buffer.from(cdrBase64, 'base64');
+      // Patrón 4: Buscar entre tags que contengan "content" o "response"
+      if (!cdrBase64) {
+        match = xmlResponse.match(/<[^>]*(?:content|response)[^>]*>([A-Za-z0-9+/=\s]{100,})<\/[^>]+>/is);
+        if (match && match[1]) {
+          cdrBase64 = match[1].replace(/\s+/g, '');
+          console.log('✅ Encontrado contenido en tags con content/response (patrón 4)');
+        }
+      }
 
-      // Extraer información del CDR (opcional)
+      if (!cdrBase64) {
+        console.error('❌ No se encontró el CDR en la respuesta');
+        console.log('📄 Respuesta completa:', xmlResponse);
+        throw new Error('No se encontró el CDR (applicationResponse) en la respuesta SOAP');
+      }
+
+      console.log(`📦 CDR Base64 encontrado (${cdrBase64.length} caracteres)`);
+
+      // Decodificar el Base64
+      const cdrBuffer = Buffer.from(cdrBase64, 'base64');
+      console.log(`✅ CDR decodificado (${cdrBuffer.length} bytes)`);
+
+      // Intentar extraer información del CDR
       let codigoRespuesta = '0';
       let mensajeRespuesta = 'Comprobante aceptado por SUNAT';
 
@@ -160,20 +187,29 @@ class SunatService {
         const zip = new AdmZip(cdrBuffer);
         const zipEntries = zip.getEntries();
         
+        console.log(`📂 ZIP contiene ${zipEntries.length} archivo(s)`);
+        
         for (const entry of zipEntries) {
           if (entry.entryName.endsWith('.xml')) {
             const cdrXml = entry.getData().toString('utf8');
-            const cdrParsed = await parseStringPromise(cdrXml, {
-              explicitArray: false,
-              tagNameProcessors: [(name) => name.replace(/^.*:/, '')]
-            });
-
-            // Extraer código y mensaje de respuesta
-            const response = cdrParsed.ApplicationResponse?.DocumentResponse?.Response;
-            if (response) {
-              codigoRespuesta = response.ResponseCode || '0';
-              mensajeRespuesta = response.Description || 'Aceptado';
+            
+            console.log(`📄 Leyendo CDR XML: ${entry.entryName}`);
+            
+            // Extraer código de respuesta
+            const codigoMatch = cdrXml.match(/<cbc:ResponseCode[^>]*>(.*?)<\/cbc:ResponseCode>/);
+            if (codigoMatch) {
+              codigoRespuesta = codigoMatch[1];
+              console.log(`✅ Código respuesta: ${codigoRespuesta}`);
             }
+            
+            // Extraer descripción/mensaje
+            const descMatch = cdrXml.match(/<cbc:Description[^>]*>(.*?)<\/cbc:Description>/);
+            if (descMatch) {
+              mensajeRespuesta = descMatch[1];
+              console.log(`✅ Mensaje: ${mensajeRespuesta}`);
+            }
+            
+            break;
           }
         }
       } catch (cdrError) {
@@ -189,33 +225,27 @@ class SunatService {
       };
 
     } catch (error) {
-      console.error('Error al parsear respuesta SUNAT:', error);
+      console.error('❌ Error al parsear respuesta SUNAT:', error.message);
       throw new Error(`Error al procesar respuesta de SUNAT: ${error.message}`);
     }
   }
 
   /**
-   * Parsea errores SOAP de SUNAT
+   * Parsea errores SOAP de SUNAT usando regex
    */
-  async parsearErrorSunat(xmlResponse) {
+  parsearErrorSunat(xmlResponse) {
     try {
-      const parsed = await parseStringPromise(xmlResponse, {
-        explicitArray: false,
-        tagNameProcessors: [(name) => name.replace(/^.*:/, '')]
-      });
+      // Buscar faultcode
+      const codeMatch = xmlResponse.match(/<faultcode[^>]*>(.*?)<\/faultcode>/);
+      const codigo = codeMatch ? codeMatch[1] : 'ERROR';
 
-      const fault = parsed.Envelope?.Body?.Fault;
-      
-      if (fault) {
-        return {
-          codigo: fault.faultcode || 'ERROR',
-          mensaje: fault.faultstring || 'Error desconocido de SUNAT'
-        };
-      }
+      // Buscar faultstring
+      const msgMatch = xmlResponse.match(/<faultstring[^>]*>(.*?)<\/faultstring>/);
+      const mensaje = msgMatch ? msgMatch[1] : 'Error desconocido de SUNAT';
 
       return {
-        codigo: 'ERROR',
-        mensaje: 'Error desconocido al procesar respuesta de SUNAT'
+        codigo,
+        mensaje
       };
 
     } catch (error) {
@@ -272,7 +302,7 @@ class SunatService {
         timeout: 30000
       });
 
-      const resultado = await this.parsearEstado(response.data);
+      const resultado = this.parsearEstado(response.data);
       return resultado;
 
     } catch (error) {
@@ -282,23 +312,19 @@ class SunatService {
   }
 
   /**
-   * Parsea respuesta de getStatus
+   * Parsea respuesta de getStatus usando regex
    */
-  async parsearEstado(xmlResponse) {
-    const parsed = await parseStringPromise(xmlResponse, {
-      explicitArray: false,
-      tagNameProcessors: [(name) => name.replace(/^.*:/, '')]
-    });
+  parsearEstado(xmlResponse) {
+    const codeMatch = xmlResponse.match(/<statusCode[^>]*>(.*?)<\/statusCode>/);
+    const msgMatch = xmlResponse.match(/<statusMessage[^>]*>(.*?)<\/statusMessage>/);
 
-    const statusResponse = parsed.Envelope?.Body?.getStatusResponse;
-
-    if (!statusResponse) {
+    if (!codeMatch) {
       throw new Error('Respuesta de estado inválida');
     }
 
     return {
-      estado: statusResponse.statusCode,
-      mensaje: statusResponse.statusMessage || 'Sin mensaje'
+      estado: codeMatch[1],
+      mensaje: msgMatch ? msgMatch[1] : 'Sin mensaje'
     };
   }
 }
