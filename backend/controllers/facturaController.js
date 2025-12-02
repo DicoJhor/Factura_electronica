@@ -126,12 +126,26 @@ export const emitirFactura = async (req, res) => {
   }
 };
 
+// ✅ FUNCIÓN CORREGIDA - Ahora maneja el parámetro empresaId
 export const listar = async (req, res) => {
   try {
-    const facturas = await listarFacturas();
+    const { empresaId } = req.query;
+    
+    console.log('📋 Listando facturas para empresaId:', empresaId);
+    
+    // Si se proporciona empresaId, filtrar por empresa
+    // Si no, devolver todas las facturas del usuario
+    const facturas = await listarFacturas(empresaId);
+    
+    console.log(`✅ Se encontraron ${facturas.length} facturas`);
+    
     res.json(facturas);
   } catch (err) {
-    console.error("Error al listar facturas:", err);
-    res.status(500).json({ message: "Error al listar facturas" });
+    console.error("❌ Error al listar facturas:", err);
+    res.status(500).json({ 
+      success: false,
+      message: "Error al listar facturas",
+      error: err.message 
+    });
   }
 };
