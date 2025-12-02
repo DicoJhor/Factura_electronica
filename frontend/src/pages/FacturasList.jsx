@@ -2,8 +2,8 @@ import './FacturasList.css';
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Navbar from '../components/Navbar';
-import empresaService from '../services/empresaService';
-import facturaService from '../services/facturaService';
+import { empresaService } from '../services/empresaService'; // 🔧 Corregido
+import { facturaService } from '../services/facturaService'; // 🔧 Corregido
 
 const FacturasList = () => {
   const { empresaId } = useParams();
@@ -22,16 +22,21 @@ const FacturasList = () => {
   const cargarDatos = async () => {
     try {
       setCargando(true);
+      console.log('🔄 Cargando datos para empresa:', empresaId); // 🔧 Debug
+      
       const [empresaData, facturasData] = await Promise.all([
         empresaService.obtenerPorId(empresaId),
         facturaService.listar(empresaId)
       ]);
 
+      console.log('✅ Empresa cargada:', empresaData); // 🔧 Debug
+      console.log('✅ Facturas cargadas:', facturasData); // 🔧 Debug
+
       setEmpresa(empresaData);
-      setFacturas(facturasData);
+      setFacturas(facturasData.data || facturasData || []); // 🔧 Manejo seguro
     } catch (error) {
-      console.error('Error al cargar datos:', error);
-      setError('Error al cargar los documentos');
+      console.error('❌ Error al cargar datos:', error); // 🔧 Debug
+      setError('Error al cargar los documentos: ' + error.message);
     } finally {
       setCargando(false);
     }
@@ -189,8 +194,8 @@ const FacturasList = () => {
 
                     <td className="acciones">
                       {factura.pdf && (
-                        <a
-                          href={`http://localhost:4000${factura.pdf}`}
+                        
+                          href={`${import.meta.env.VITE_API_URL || 'http://localhost:4000'}${factura.pdf}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="btn-icon btn-pdf"
