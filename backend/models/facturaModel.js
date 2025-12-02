@@ -153,9 +153,8 @@ export const listarFacturas = async (empresaId) => {
       c.estado,
       c.fecha_emision,
       c.mensaje_sunat,
-      c.pdf,
       c.xml_firmado,
-      c.cdr,
+      c.cdr_sunat,
       cl.nombre AS cliente_nombre,
       cl.numero_doc AS cliente_documento,
       cl.tipo_doc AS cliente_tipo_doc,
@@ -224,32 +223,26 @@ export const obtenerDetallesFactura = async (comprobanteId) => {
 };
 
 /*
- * 8️⃣ Actualizar las rutas de archivos generados (PDF, XML, CDR)
+ * 8️⃣ Actualizar las rutas de archivos generados (XML, CDR)
  */
 export const actualizarArchivos = async (comprobanteId, archivos) => {
   const updates = [];
   const params = [];
-
-  if (archivos.pdf) {
-    updates.push('pdf = ?');
-    params.push(archivos.pdf);
-  }
 
   if (archivos.xml_firmado) {
     updates.push('xml_firmado = ?');
     params.push(archivos.xml_firmado);
   }
 
-  if (archivos.cdr) {
-    updates.push('cdr = ?');
-    params.push(archivos.cdr);
+  if (archivos.cdr_sunat) {
+    updates.push('cdr_sunat = ?');
+    params.push(archivos.cdr_sunat);
   }
 
   if (updates.length === 0) {
     return;
   }
 
-  updates.push('actualizado_en = NOW()');
   params.push(comprobanteId);
 
   const query = `UPDATE comprobantes SET ${updates.join(', ')} WHERE id = ?`;
