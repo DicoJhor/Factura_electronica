@@ -19,47 +19,34 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// ========== CORS MEJORADO ==========
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'https://factura-electronica-ten.vercel.app',
-  process.env.FRONTEND_URL
-].filter(Boolean); // Elimina valores undefined
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Permitir requests sin origin (como Postman, curl, apps móviles)
+// ✅ CORS configurado para permitir TODOS los dominios de Vercel
+app.use(cors({
+  origin: function(origin, callback) {
+    // Permitir requests sin origin (Postman, mobile apps)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.warn('⚠️ Origen bloqueado por CORS:', origin);
-      callback(null, true); // En producción, cambiar a: callback(new Error('Not allowed by CORS'))
+    // Permitir localhost (desarrollo)
+    if (origin.includes('localhost')) return callback(null, true);
+    
+    // Permitir TODOS los dominios de Vercel
+    if (origin.includes('vercel.app')) return callback(null, true);
+    
+    // Permitir tu dominio personalizado si lo tienes
+    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
+      return callback(null, true);
     }
+    
+    // Si no coincide con ninguno, bloquear
+    console.log('❌ CORS bloqueado para origen:', origin);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200
-};
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-app.use(cors(corsOptions));
-
-// Middleware para parsear JSON y URL-encoded
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Middleware de logging para debugging
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`, {
-    origin: req.headers.origin,
-    contentType: req.headers['content-type'],
-    body: req.method === 'POST' ? req.body : undefined
-  });
-  next();
-});
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Crear carpetas necesarias
 const folders = [
@@ -85,30 +72,28 @@ app.use("/api/sunat", sunatRoutes);
 // Archivos estáticos
 app.use("/facturas", express.static(path.join(__dirname, "facturas")));
 
-// Ruta raíz
+// Ruta de salud
 app.get("/", (req, res) => {
   res.json({ 
     status: "OK", 
-    message: "Facturador Electrónico API v1.0",
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    message: "Facturador API v1.0",
+    corsPolicy: "Vercel domains + localhost enabled",
+    timestamp: new Date().toISOString()
   });
 });
 
-// Ruta de salud
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "OK", 
     message: "API funcionando correctamente",
     environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString(),
-    database: "connected" // Podrías hacer un ping real a la BD aquí
+    timestamp: new Date().toISOString()
   });
 });
 
 // Manejo de errores
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err);
+  console.error('❌ Error:', err.stack);
   res.status(500).json({ 
     error: err.message || 'Algo salió mal!',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
@@ -117,11 +102,9 @@ app.use((err, req, res, next) => {
 
 // 404
 app.use((req, res) => {
-  console.warn('⚠️ Ruta no encontrada:', req.method, req.path);
   res.status(404).json({ 
     error: 'Ruta no encontrada',
-    path: req.path,
-    method: req.method
+    path: req.path 
   });
 });
 
@@ -134,7 +117,7 @@ app.listen(PORT, HOST, () => {
   console.log(`✅ Servidor corriendo en puerto ${PORT}`);
   console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📡 Host: ${HOST}:${PORT}`);
-  console.log(`🔓 CORS habilitado para:`, allowedOrigins);
+  console.log(`🔓 CORS: Vercel + localhost habilitados`);
   console.log(`========================================\n`);
   
   console.log(`📋 Rutas API disponibles:`);
