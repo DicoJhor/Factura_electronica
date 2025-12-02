@@ -25,8 +25,16 @@ const Registro = () => {
   };
 
   const validarFormulario = () => {
+    // Validar campos vacíos
     if (!formData.nombre || !formData.usuario || !formData.email || !formData.password) {
       setError('Por favor completa todos los campos');
+      return false;
+    }
+
+    // Validar nombre: debe empezar con letra y solo contener letras y espacios
+    const nombreRegex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑ][a-zA-ZáéíóúÁÉÍÓÚñÑ\s]*$/;
+    if (!nombreRegex.test(formData.nombre.trim())) {
+      setError('El nombre debe empezar con una letra y solo contener letras y espacios');
       return false;
     }
 
@@ -35,24 +43,40 @@ const Registro = () => {
       return false;
     }
 
+    // Validar usuario: debe empezar con letra, sin caracteres especiales
+    const usuarioRegex = /^[a-zA-Z][a-zA-Z0-9_]*$/;
+    if (!usuarioRegex.test(formData.usuario.trim())) {
+      setError('El usuario debe empezar con una letra y solo contener letras, números y guiones bajos');
+      return false;
+    }
+
     if (formData.usuario.trim().length < 3) {
       setError('El usuario debe tener al menos 3 caracteres');
       return false;
     }
 
+    // Validar email con formato correcto
+    const emailRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(formData.email.trim())) {
+      setError('El formato del email no es válido (ejemplo: usuario@dominio.com)');
+      return false;
+    }
+
+    // Validar contraseña: mínimo 6 caracteres con al menos una letra y un número
     if (formData.password.length < 6) {
       setError('La contraseña debe tener al menos 6 caracteres');
       return false;
     }
 
-    if (formData.password !== formData.confirmarPassword) {
-      setError('Las contraseñas no coinciden');
+    const passwordRegex = /^(?=.*[a-zA-Z])(?=.*\d).+$/;
+    if (!passwordRegex.test(formData.password)) {
+      setError('La contraseña debe contener al menos una letra y un número');
       return false;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email)) {
-      setError('El formato del email no es válido');
+    // Validar que las contraseñas coincidan
+    if (formData.password !== formData.confirmarPassword) {
+      setError('Las contraseñas no coinciden');
       return false;
     }
 
@@ -84,7 +108,6 @@ const Registro = () => {
 
       console.log('✅ Registro completado:', resultado);
       
-      // Pequeño delay para que el usuario vea el éxito
       setTimeout(() => {
         navigate('/empresas');
       }, 500);
@@ -92,7 +115,6 @@ const Registro = () => {
     } catch (error) {
       console.error('❌ Error en el registro:', error);
       
-      // Extraer el mensaje de error más específico posible
       let mensajeError = 'Error al registrar usuario';
       
       if (error.response?.data?.error) {
@@ -141,6 +163,7 @@ const Registro = () => {
               required
               minLength={3}
             />
+            <small className="form-hint">Debe empezar con letra, solo letras y espacios</small>
           </div>
 
           <div className="form-group">
@@ -157,6 +180,7 @@ const Registro = () => {
               required
               minLength={3}
             />
+            <small className="form-hint">Debe empezar con letra, sin caracteres especiales</small>
           </div>
 
           <div className="form-group">
@@ -172,6 +196,7 @@ const Registro = () => {
               disabled={cargando}
               required
             />
+            <small className="form-hint">Formato: usuario@dominio.com</small>
           </div>
 
           <div className="form-group">
@@ -198,6 +223,7 @@ const Registro = () => {
                 {mostrarPassword ? '👁️' : '👁️‍🗨️'}
               </button>
             </div>
+            <small className="form-hint">Mínimo 6 caracteres, debe incluir letras y números</small>
           </div>
 
           <div className="form-group">
