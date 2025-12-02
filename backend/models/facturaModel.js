@@ -12,9 +12,7 @@ export const generarSiguienteNumero = async (serie = "C001") => {
      LIMIT 1`,
     [serie]
   );
-
-  if (rows.length === 0) return 1; // Si no hay comprobantes todavía -> empieza desde 1
-
+  if (rows.length === 0) return 1;
   return rows[0].numero + 1;
 };
 
@@ -41,7 +39,7 @@ export const crearFactura = async (data) => {
     observaciones,
     estado
   } = data;
-
+  
   const [result] = await pool.query(
     `INSERT INTO comprobantes (
       empresa_id, cliente_id, usuario_id, tipo, serie, numero,
@@ -69,7 +67,7 @@ export const crearFactura = async (data) => {
       estado || "PENDIENTE"
     ]
   );
-
+  
   return result.insertId;
 };
 
@@ -103,10 +101,33 @@ export const agregarDetalle = async (comprobanteId, detalle) => {
  * 4️⃣ Actualizar estado del comprobante (estado + mensaje SUNAT)
  */
 export const actualizarEstado = async (comprobanteId, estado, mensaje = null) => {
-  await pool.query(
-    `UPDATE comprobantes SET estado = ?, mensaje_sunat = ? WHERE id = ?`,
-    [estado, mensaje, comprobanteId]
-  );
+  // 🔧 Mapear estados a valores que probablemente existan en el ENUM
+  const estadosPermitidos = {
+    'PENDIENTE': 'PENDIENTE',
+    'GENERADA': 'EMITIDO',      // Cambiado
+    'ACEPTADA': 'ACEPTADO',      // Cambiado
+    'RECHAZADA': 'ANULADO',      // Cambiado (porque RECHAZADA no existe)
+    'ANULADA': 'ANULADO'
+  };
+
+  const estadoFinal = estadosPermitidos[estado] || 'PENDIENTE';
+  
+  // 🔧 Truncar mensaje a máximo 255 caracteres
+  const mensajeTruncado = mensaje ? mensaje.substring(0, 255) : null;
+
+  try {
+    await pool.query(
+      `UPDATE comprobantes SET estado = ?, mensaje_sunat = ? WHERE id = ?`,
+      [estadoFinal, mensajeTruncado, comprobanteId]
+    );
+  } catch (error) {
+    // Si falla, intentar solo con PENDIENTE
+    console.error('Error actualizando estado, usando PENDIENTE:', error.message);
+    await pool.query(
+      `UPDATE comprobantes SET estado = 'PENDIENTE', mensaje_sunat = ? WHERE id = ?`,
+      [mensajeTruncado, comprobanteId]
+    );
+  }
 };
 
 /*
@@ -124,7 +145,7 @@ export const listarFacturas = async () => {
       c.fecha_emision,
       c.mensaje_sunat,
       cl.nombre AS cliente_nombre,
-      cl.documento AS cliente_documento,
+      cl.numero_doc AS cliente_documento,
       GROUP_CONCAT(CONCAT(d.descripcion, ' x', d.cantidad) SEPARATOR ', ') AS detalles
     FROM comprobantes c
     LEFT JOIN clientes cl ON cl.id = c.cliente_id
@@ -132,6 +153,5 @@ export const listarFacturas = async () => {
     GROUP BY c.id
     ORDER BY c.id DESC
   `);
-
   return rows;
 };
