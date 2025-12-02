@@ -1,10 +1,10 @@
+
 // backend/models/facturaModel.js
 import { pool } from "../config/db.js";
 
-// Crear comprobante
 export const crearFactura = async (factura) => {
   const [result] = await pool.query(
-    `INSERT INTO comprobante (numero, cliente_nombre, cliente_documento, fecha_emision, total, estado)
+    `INSERT INTO comprobantes (numero, cliente_nombre, cliente_documento, fecha_emision, total, estado)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [
       factura.numero,
@@ -18,7 +18,6 @@ export const crearFactura = async (factura) => {
   return result.insertId;
 };
 
-// Agregar detalle
 export const agregarDetalle = async (facturaId, detalle) => {
   await pool.query(
     `INSERT INTO detalle_comprobante (comprobante_id, producto, cantidad, precio_unitario, subtotal)
@@ -33,18 +32,16 @@ export const agregarDetalle = async (facturaId, detalle) => {
   );
 };
 
-// Actualizar estado
 export const actualizarEstado = async (facturaId, estado, mensaje = null) => {
   await pool.query(
-    `UPDATE comprobante SET estado = ?, mensaje = ? WHERE id = ?`,
+    `UPDATE comprobantes SET estado = ?, mensaje = ? WHERE id = ?`,
     [estado, mensaje, facturaId]
   );
 };
 
-// Generar número de comprobante
 export const generarSiguienteNumero = async () => {
   const [rows] = await pool.query(
-    `SELECT numero FROM comprobante ORDER BY id DESC LIMIT 1`
+    `SELECT numero FROM comprobantes ORDER BY id DESC LIMIT 1`
   );
 
   if (rows.length === 0) return "C001-000001";
@@ -52,10 +49,10 @@ export const generarSiguienteNumero = async () => {
   const last = rows[0].numero;
   const [serie, correlativoStr] = last.split("-");
   const nuevo = String(parseInt(correlativoStr) + 1).padStart(6, "0");
+
   return `${serie}-${nuevo}`;
 };
 
-// Listar comprobantes
 export const listarFacturas = async () => {
   const [rows] = await pool.query(`
     SELECT 
@@ -68,7 +65,7 @@ export const listarFacturas = async () => {
       c.estado,
       c.mensaje,
       GROUP_CONCAT(CONCAT(d.producto, ' (x', d.cantidad, ')') SEPARATOR ', ') AS detalles
-    FROM comprobante c
+    FROM comprobantes c
     LEFT JOIN detalle_comprobante d ON c.id = d.comprobante_id
     GROUP BY c.id
     ORDER BY c.id DESC
@@ -76,4 +73,3 @@ export const listarFacturas = async () => {
 
   return rows;
 };
-
