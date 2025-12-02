@@ -1,8 +1,10 @@
 // backend/models/facturaModel.js
 import { pool } from "../config/db.js";
+
+// Crear comprobante
 export const crearFactura = async (factura) => {
   const [result] = await pool.query(
-    `INSERT INTO facturas (numero, cliente_nombre, cliente_documento, fecha_emision, total, estado)
+    `INSERT INTO comprobante (numero, cliente_nombre, cliente_documento, fecha_emision, total, estado)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [
       factura.numero,
@@ -15,22 +17,37 @@ export const crearFactura = async (factura) => {
   );
   return result.insertId;
 };
+
+// Agregar detalle
 export const agregarDetalle = async (facturaId, detalle) => {
   await pool.query(
-    `INSERT INTO detalle_factura (factura_id, producto, cantidad, precio_unitario, subtotal)
+    `INSERT INTO detalle_comprobante (comprobante_id, producto, cantidad, precio_unitario, subtotal)
      VALUES (?, ?, ?, ?, ?)`,
-    [facturaId, detalle.producto, detalle.cantidad, detalle.precio_unitario, detalle.subtotal]
+    [
+      facturaId,
+      detalle.producto,
+      detalle.cantidad,
+      detalle.precio_unitario,
+      detalle.subtotal,
+    ]
   );
 };
+
+// Actualizar estado
 export const actualizarEstado = async (facturaId, estado, mensaje = null) => {
   await pool.query(
-    `UPDATE facturas SET estado = ?, mensaje = ? WHERE id = ?`,
+    `UPDATE comprobante SET estado = ?, mensaje = ? WHERE id = ?`,
     [estado, mensaje, facturaId]
   );
 };
+
+// Generar número de comprobante
 export const generarSiguienteNumero = async () => {
-  const [rows] = await pool.query(`SELECT numero FROM facturas ORDER BY id DESC LIMIT 1`);
-  if (rows.length === 0) return "F001-000001";
+  const [rows] = await pool.query(
+    `SELECT numero FROM comprobante ORDER BY id DESC LIMIT 1`
+  );
+
+  if (rows.length === 0) return "C001-000001";
 
   const last = rows[0].numero;
   const [serie, correlativoStr] = last.split("-");
@@ -38,22 +55,25 @@ export const generarSiguienteNumero = async () => {
   return `${serie}-${nuevo}`;
 };
 
+// Listar comprobantes
 export const listarFacturas = async () => {
   const [rows] = await pool.query(`
     SELECT 
-      f.id,
-      f.numero,
-      f.cliente_nombre,
-      f.cliente_documento,
-      DATE_FORMAT(f.fecha_emision, '%Y-%m-%d %H:%i:%s') AS fecha_emision,
-      f.total,
-      f.estado,
-      f.mensaje,
+      c.id,
+      c.numero,
+      c.cliente_nombre,
+      c.cliente_documento,
+      DATE_FORMAT(c.fecha_emision, '%Y-%m-%d %H:%i:%s') AS fecha_emision,
+      c.total,
+      c.estado,
+      c.mensaje,
       GROUP_CONCAT(CONCAT(d.producto, ' (x', d.cantidad, ')') SEPARATOR ', ') AS detalles
-    FROM facturas f
-    LEFT JOIN detalle_factura d ON f.id = d.factura_id
-    GROUP BY f.id
-    ORDER BY f.id DESC
+    FROM comprobante c
+    LEFT JOIN detalle_comprobante d ON c.id = d.comprobante_id
+    GROUP BY c.id
+    ORDER BY c.id DESC
   `);
+
   return rows;
 };
+
