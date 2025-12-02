@@ -117,11 +117,10 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
         
         console.log(`✅ Descargado: ${nombreArchivoLimpio}`);
         
-        // 🔧 Reemplazar con ruta completa en formato correcto para SOAP
-        const rutaParaWSDL = rutaLocal.replace(/\\/g, '/');
+        // 🔧 Reemplazar con SOLO el nombre del archivo (sin ruta, sin file://)
         wsdlContent = wsdlContent.replace(
           `location="${archivo}"`,
-          `location="file:///${rutaParaWSDL}"`
+          `location="${nombreArchivoLimpio}"`
         );
       } catch (err) {
         console.warn(`⚠️ No se pudo descargar ${archivo}:`, err.message);
@@ -164,11 +163,10 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
             
             console.log(`✅ Descargado schema: ${nombreSchemaLimpio}`);
             
-            // Reemplazar en ns1.wsdl
-            const rutaSchemaParaWSDL = rutaSchemaLocal.replace(/\\/g, '/');
+            // 🔧 Reemplazar con SOLO el nombre del archivo
             ns1Content = ns1Content.replace(
               `schemaLocation="${schemaFile}"`,
-              `schemaLocation="file:///${rutaSchemaParaWSDL}"`
+              `schemaLocation="${nombreSchemaLimpio}"`
             );
           } catch (err) {
             console.warn(`⚠️ No se pudo descargar schema ${schemaFile}:`, err.message);
@@ -178,15 +176,17 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       
       // Guardar ns1.wsdl modificado
       fs.writeFileSync(ns1Path, ns1Content);
-      console.log("✅ ns1.wsdl actualizado con rutas locales");
+      console.log("✅ ns1.wsdl actualizado con nombres de archivo locales");
     }
 
-    // Crear cliente SOAP
+    // Crear cliente SOAP desde el directorio temporal
     const client = await soap.createClientAsync(wsdlTempPath, {
       endpoint: baseURL,
       wsdl_options: {
         timeout: 60000,
         strict: false,
+        // 🔧 Especificar el directorio base para imports relativos
+        wsdl_headers: {},
       },
       request_timeout: 60000,
       disableCache: true,
