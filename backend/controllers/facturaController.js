@@ -3,6 +3,7 @@
 import { generarYFirmarXML } from "../utils/generarYFirmarXML.js";
 import { enviarFacturaASunat } from "../services/sunatService.js";
 import { generarPDF } from "../utils/generarPDF.js";
+import { pool } from "../config/db.js";
 
 import {
   crearFactura,
@@ -19,10 +20,11 @@ export const emitirFactura = async (req, res) => {
   try {
     const body = req.body;
 
-    if (!body.cliente_id) {
+    // Validación: ahora aceptamos "cliente" en lugar de "cliente_id"
+    if (!body.cliente && !body.cliente_id) {
       return res.status(400).json({
         success: false,
-        message: "El campo cliente_id es requerido"
+        message: "Debe incluir los datos del cliente"
       });
     }
 
@@ -40,13 +42,45 @@ export const emitirFactura = async (req, res) => {
       });
     }
 
-    // 1️⃣ Obtener siguiente número
+    // 🆕 1️⃣ BUSCAR O CREAR CLIENTE
+    let clienteId;
+
+    if (body.cliente_id) {
+      // Si viene cliente_id directamente, lo usamos
+      clienteId = body.cliente_id;
+    } else if (body.cliente) {
+      // Si vienen los datos del cliente, buscamos o creamos
+      const { tipoDoc, numeroDoc, nombre, direccion } = body.cliente;
+
+      // Buscar si el cliente ya existe
+      const [clientesExistentes] = await pool.query(
+        'SELECT id FROM clientes WHERE documento = ? AND empresa_id = ?',
+        [numeroDoc, body.empresa_id]
+      );
+
+      if (clientesExistentes.length > 0) {
+        // Cliente ya existe
+        clienteId = clientesExistentes[0].id;
+        console.log(`✅ Cliente existente encontrado: ID ${clienteId}`);
+      } else {
+        // Crear nuevo cliente
+        const [resultCliente] = await pool.query(
+          `INSERT INTO clientes (empresa_id, tipo_documento, documento, nombre, direccion, creado_en) 
+           VALUES (?, ?, ?, ?, ?, NOW())`,
+          [body.empresa_id, tipoDoc, numeroDoc, nombre, direccion || null]
+        );
+        clienteId = resultCliente.insertId;
+        console.log(`✅ Nuevo cliente creado: ID ${clienteId}`);
+      }
+    }
+
+    // 2️⃣ Obtener siguiente número
     const numero = await generarSiguienteNumero(body.serie || "C001");
 
-    // 2️⃣ Armar comprobante
+    // 3️⃣ Armar comprobante
     const comprobanteData = {
       empresa_id: body.empresa_id,
-      cliente_id: body.cliente_id,
+      cliente_id: clienteId, // 🆕 Ahora usamos el clienteId obtenido
       usuario_id: req.user?.id || 1,
       tipo: body.tipo || "01",
       serie: body.serie || "C001",
@@ -66,23 +100,28 @@ export const emitirFactura = async (req, res) => {
 
     const comprobanteId = await crearFactura(comprobanteData);
 
-    // 3️⃣ Guardar detalles
+    // 4️⃣ Guardar detalles
     for (const item of body.detalles) {
+      // 🆕 Calculamos los valores si no vienen
+      const subtotalItem = item.subtotal || (item.cantidad * item.precio_unitario);
+      const igvItem = item.igv || (subtotalItem * 0.18);
+      const totalItem = item.total || (subtotalItem + igvItem);
+
       await agregarDetalle(comprobanteId, {
-        producto_id: item.producto_id,
+        producto_id: item.producto_id || null,
         cantidad: item.cantidad,
-        unidad_medida: item.unidad_medida,
+        unidad_medida: item.unidad_medida || 'NIU',
         descripcion: item.descripcion,
         precio_unitario: item.precio_unitario,
-        descuento: item.descuento,
-        afecto_igv: item.afecto_igv,
-        igv: item.igv,
-        subtotal: item.subtotal,
-        total: item.total
+        descuento: item.descuento || 0,
+        afecto_igv: item.afecto_igv !== undefined ? item.afecto_igv : 1,
+        igv: igvItem,
+        subtotal: subtotalItem,
+        total: totalItem
       });
     }
 
-    // 4️⃣ Generar PDF
+    // 5️⃣ Generar PDF
     const pdfPath = await generarPDF(
       { 
         serie: comprobanteData.serie,
@@ -93,16 +132,16 @@ export const emitirFactura = async (req, res) => {
       body.detalles
     );
 
-    // 5️⃣ Generar XML
+    // 6️⃣ Generar XML
     const xmlPath = await generarYFirmarXML({
       serie: comprobanteData.serie,
       numero: comprobanteData.numero,
       total: comprobanteData.total,
-      cliente_id: comprobanteData.cliente_id,
+      cliente_id: clienteId, // 🆕 Usamos clienteId
       productos: body.detalles
     });
 
-    // 6️⃣ Crear ZIP
+    // 7️⃣ Crear ZIP
     const nombreBase = `${comprobanteData.serie}-${String(numero).padStart(6, "0")}`;
     const zipPath = path.resolve(`./facturas/${nombreBase}.zip`);
 
@@ -110,7 +149,7 @@ export const emitirFactura = async (req, res) => {
     zip.addLocalFile(xmlPath);
     zip.writeZip(zipPath);
 
-    // 7️⃣ Enviar a SUNAT (si no está en modo desarrollo)
+    // 8️⃣ Enviar a SUNAT (si no está en modo desarrollo)
     const modoDesarrollo = process.env.MODO_DESARROLLO === "true";
 
     if (modoDesarrollo) {
@@ -150,7 +189,7 @@ export const emitirFactura = async (req, res) => {
     }
 
   } catch (err) {
-    console.error("emitirFactura err:", err);
+    console.error("❌ emitirFactura err:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
