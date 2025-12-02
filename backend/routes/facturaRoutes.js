@@ -1,13 +1,11 @@
 import express from 'express';
-import { emitirFactura, listar } from '../controllers/facturaController.js';
+import { registrar, login, verificarToken } from '../controllers/authController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// GET /api/facturas - Listar facturas (opcionalmente filtradas por empresaId)
-router.get('/', authMiddleware, listar);
-
-// POST /api/facturas - Emitir nueva factura
-router.post('/', authMiddleware, emitirFactura);
+router.post('/registro', registrar);
+router.post('/login', login);
+router.get('/verificar', authMiddleware, verificarToken);
 
 export default router;
