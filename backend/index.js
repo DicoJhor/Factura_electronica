@@ -19,14 +19,31 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// CORS configurado para permitir el frontend
-const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true,
-  optionsSuccessStatus: 200
-};
+// ✅ CORS configurado correctamente para múltiples orígenes
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://factura-electronica-ten.vercel.app',
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: function(origin, callback) {
+    // Permitir requests sin origin (Postman, mobile apps, curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('❌ CORS bloqueado para origen:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -59,6 +76,7 @@ app.get("/", (req, res) => {
   res.json({ 
     status: "OK", 
     message: "Facturador API v1.0",
+    allowedOrigins: allowedOrigins,
     timestamp: new Date().toISOString()
   });
 });
@@ -98,6 +116,7 @@ app.listen(PORT, HOST, () => {
   console.log(`✅ Servidor corriendo en puerto ${PORT}`);
   console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📡 Host: ${HOST}:${PORT}`);
+  console.log(`🔓 CORS habilitado para:`, allowedOrigins);
   console.log(`========================================\n`);
   
   console.log(`📋 Rutas API disponibles:`);
