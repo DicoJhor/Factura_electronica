@@ -4,6 +4,7 @@ import path from "path";
 import soap from "soap";
 import https from "https";
 import { sunatConfig } from "../config/sunat.js";
+
 const descargarConAuth = (url, username, password) => {
   return new Promise((resolve, reject) => {
     const auth = Buffer.from(`${username}:${password}`).toString("base64");
@@ -56,6 +57,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     const zipBuffer = fs.readFileSync(zipPath);
     const zipContent = zipBuffer.toString("base64");
     console.log("Tamaño ZIP:", zipBuffer.length, "bytes");
+
     const baseURL =
       sunatConfig.mode === "beta"
         ? "https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService"
@@ -65,11 +67,13 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     const wsdlImportURL = `${baseURL}?ns1.wsdl`;
 
     console.log("WSDL Base:", wsdlURL);
+
     const username = `${sunatConfig.ruc}${sunatConfig.user}`;
     const password = sunatConfig.pass;
 
     console.log("🔐 Usuario:", username);
     console.log("🔐 Contraseña:", password.substring(0, 3) + "***");
+
     const tempFolder = path.resolve("./temp");
     if (!fs.existsSync(tempFolder)) {
       fs.mkdirSync(tempFolder, { recursive: true });
@@ -78,15 +82,20 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     console.log("Descargando WSDL principal...");
     let wsdlContent = await descargarConAuth(wsdlURL, username, password);
     console.log("WSDL principal descargado");
+
     console.log("Descargando WSDL importado (ns1.wsdl)...");
     const wsdlImportContent = await descargarConAuth(wsdlImportURL, username, password);
     console.log("WSDL importado descargado");
+
     wsdlImportPath = path.join(tempFolder, "billService_ns1.wsdl");
     fs.writeFileSync(wsdlImportPath, wsdlImportContent);
+
+    // 🔧 CORRECCIÓN: Quitar el prefijo "file:///"
     wsdlContent = wsdlContent.replace(
       'location="billService?ns1.wsdl"',
-      `location="file:///${wsdlImportPath.replace(/\\/g, "/")}"`
+      `location="${wsdlImportPath.replace(/\\/g, "/")}"`
     );
+
     wsdlTempPath = path.join(tempFolder, "billService.wsdl");
     fs.writeFileSync(wsdlTempPath, wsdlContent);
     console.log("WSDL guardado temporalmente en:", wsdlTempPath);
@@ -105,6 +114,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     client.setSecurity(basicAuth);
 
     console.log("Seguridad BasicAuth configurada");
+
     const args = {
       fileName: zipName,
       contentFile: zipContent,
@@ -139,6 +149,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     if (sunatConfig.mode === "beta") {
       console.log("Respuesta completa:", JSON.stringify(response, null, 2));
     }
+
     if (response.applicationResponse) {
       console.log("SUNAT aceptó el comprobante");
 
@@ -174,7 +185,6 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
       };
     }
 
-    // Respuesta inesperada
     console.error("Respuesta inesperada de SUNAT:", response);
     return {
       success: false,
@@ -214,7 +224,6 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     };
 
   } finally {
-    // Limpiar archivos temporales
     try {
       if (wsdlTempPath && fs.existsSync(wsdlTempPath)) {
         fs.unlinkSync(wsdlTempPath);
