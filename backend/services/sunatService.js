@@ -104,7 +104,7 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
         
         const contenido = await descargarConAuth(urlCompleta, username, password);
         
-        // 🔧 Limpiar nombre de archivo (quitar caracteres no válidos)
+        // 🔧 Limpiar nombre de archivo
         const nombreArchivoLimpio = archivo
           .replace(/\?/g, '_')
           .replace(/[<>:"|*]/g, '_')
@@ -117,10 +117,11 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
         
         console.log(`✅ Descargado: ${nombreArchivoLimpio}`);
         
-        // 🔧 Reemplazar la referencia en el WSDL
+        // 🔧 Reemplazar con ruta completa en formato correcto para SOAP
+        const rutaParaWSDL = rutaLocal.replace(/\\/g, '/');
         wsdlContent = wsdlContent.replace(
           `location="${archivo}"`,
-          `location="${nombreArchivoLimpio}"`
+          `location="file:///${rutaParaWSDL}"`
         );
       } catch (err) {
         console.warn(`⚠️ No se pudo descargar ${archivo}:`, err.message);
@@ -133,16 +134,61 @@ export const enviarFacturaASunat = async (zipPath, zipName) => {
     archivosTemporales.push(wsdlTempPath);
     console.log("WSDL guardado temporalmente en:", wsdlTempPath);
 
-    // Crear cliente SOAP con opciones adicionales
+    // 🆕 Intentar también procesar el archivo ns1.wsdl si existe
+    const ns1Path = path.join(tempFolder, "billService_ns1.wsdl");
+    if (fs.existsSync(ns1Path)) {
+      let ns1Content = fs.readFileSync(ns1Path, 'utf8');
+      
+      // Procesar imports/includes dentro del ns1.wsdl
+      const ns1ImportRegex = /(import|include)\s+.*?schemaLocation="([^"]+)"/g;
+      let ns1Match;
+      
+      while ((ns1Match = ns1ImportRegex.exec(ns1Content)) !== null) {
+        const schemaFile = ns1Match[2];
+        if (!schemaFile.startsWith('http') && !schemaFile.startsWith('file:')) {
+          try {
+            const schemaUrl = `${baseURL}?${schemaFile}`;
+            console.log(`Descargando schema: ${schemaFile}...`);
+            
+            const schemaContent = await descargarConAuth(schemaUrl, username, password);
+            
+            const nombreSchemaLimpio = schemaFile
+              .replace(/\?/g, '_')
+              .replace(/[<>:"|*]/g, '_')
+              .split('/')
+              .pop();
+            
+            const rutaSchemaLocal = path.join(tempFolder, nombreSchemaLimpio);
+            fs.writeFileSync(rutaSchemaLocal, schemaContent);
+            archivosTemporales.push(rutaSchemaLocal);
+            
+            console.log(`✅ Descargado schema: ${nombreSchemaLimpio}`);
+            
+            // Reemplazar en ns1.wsdl
+            const rutaSchemaParaWSDL = rutaSchemaLocal.replace(/\\/g, '/');
+            ns1Content = ns1Content.replace(
+              `schemaLocation="${schemaFile}"`,
+              `schemaLocation="file:///${rutaSchemaParaWSDL}"`
+            );
+          } catch (err) {
+            console.warn(`⚠️ No se pudo descargar schema ${schemaFile}:`, err.message);
+          }
+        }
+      }
+      
+      // Guardar ns1.wsdl modificado
+      fs.writeFileSync(ns1Path, ns1Content);
+      console.log("✅ ns1.wsdl actualizado con rutas locales");
+    }
+
+    // Crear cliente SOAP
     const client = await soap.createClientAsync(wsdlTempPath, {
       endpoint: baseURL,
       wsdl_options: {
         timeout: 60000,
-        // 🆕 Deshabilitar validación estricta
         strict: false,
       },
       request_timeout: 60000,
-      // 🆕 Ignorar imports de esquemas externos
       disableCache: true,
     });
 
