@@ -34,3 +34,4 @@ export const facturaService = {
     return response.data;
   }
 };
+export default facturaService;
