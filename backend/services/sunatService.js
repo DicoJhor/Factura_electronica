@@ -1,323 +1,262 @@
-// backend/services/sunatService.js
-import fs from "fs";
-import path from "path";
-import soap from "soap";
-import https from "https";
-import { sunatConfig } from "../config/sunat.js";
+const axios = require('axios');
+const fs = require('fs').promises;
+const path = require('path');
+const { parseStringPromise } = require('xml2js');
 
-const descargarConAuth = (url, username, password) => {
-  return new Promise((resolve, reject) => {
-    const auth = Buffer.from(`${username}:${password}`).toString("base64");
-    
-    const options = {
-      headers: {
-        Authorization: `Basic ${auth}`,
-      },
-      rejectUnauthorized: false,
+class SunatService {
+  constructor() {
+    // URLs de SUNAT
+    this.urls = {
+      beta: 'https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService',
+      produccion: 'https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService'
     };
+  }
 
-    https.get(url, options, (res) => {
-      if (res.statusCode === 401) {
-        reject(new Error("Error 401: Credenciales incorrectas"));
-        return;
-      }
+  /**
+   * Envía un comprobante electrónico a SUNAT
+   */
+  async enviarComprobante(options) {
+    const {
+      zipBase64,
+      nombreArchivo,
+      rucEmisor,
+      usuarioSol,
+      claveSol,
+      ambiente = 'beta'
+    } = options;
 
-      if (res.statusCode !== 200) {
-        reject(new Error(`Error HTTP ${res.statusCode}`));
-        return;
-      }
-
-      let data = "";
-      res.on("data", (chunk) => {
-        data += chunk;
-      });
-
-      res.on("end", () => {
-        resolve(data);
-      });
-    }).on("error", (err) => {
-      reject(err);
-    });
-  });
-};
-
-export const enviarFacturaASunat = async (zipPath, zipName) => {
-  let archivosTemporales = [];
-
-  try {
-    console.log("Iniciando envío a SUNAT...");
-    console.log("Archivo:", zipName);
-    console.log("Modo:", sunatConfig.mode);
-
-    if (!fs.existsSync(zipPath)) {
-      throw new Error(`Archivo ZIP no encontrado: ${zipPath}`);
-    }
-
-    const zipBuffer = fs.readFileSync(zipPath);
-    const zipContent = zipBuffer.toString("base64");
-    console.log("Tamaño ZIP:", zipBuffer.length, "bytes");
-
-    const baseURL =
-      sunatConfig.mode === "beta"
-        ? "https://e-beta.sunat.gob.pe/ol-ti-itcpfegem-beta/billService"
-        : "https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService";
-
-    const wsdlURL = `${baseURL}?wsdl`;
-
-    console.log("WSDL Base:", wsdlURL);
-
-    const username = `${sunatConfig.ruc}${sunatConfig.user}`;
-    const password = sunatConfig.pass;
-
-    console.log("🔐 Usuario:", username);
-    console.log("🔐 Contraseña:", password.substring(0, 3) + "***");
-
-    const tempFolder = path.resolve("./temp");
-    if (!fs.existsSync(tempFolder)) {
-      fs.mkdirSync(tempFolder, { recursive: true });
-    }
-
-    // Descargar WSDL principal
-    console.log("Descargando WSDL principal...");
-    let wsdlContent = await descargarConAuth(wsdlURL, username, password);
-    console.log("WSDL principal descargado");
-
-    // 🆕 Buscar y descargar todos los archivos importados
-    const importRegex = /(import|include)\s+.*?location="([^"]+)"/g;
-    let match;
-    const archivosADescargar = [];
-
-    while ((match = importRegex.exec(wsdlContent)) !== null) {
-      const archivoImportado = match[2];
-      if (!archivoImportado.startsWith('http')) {
-        archivosADescargar.push(archivoImportado);
-      }
-    }
-
-    console.log(`📦 Archivos a descargar: ${archivosADescargar.length}`);
-
-    // Descargar todos los archivos importados
-    for (const archivo of archivosADescargar) {
-      try {
-        const urlCompleta = `${baseURL}?${archivo}`;
-        console.log(`Descargando: ${archivo}...`);
-        
-        const contenido = await descargarConAuth(urlCompleta, username, password);
-        
-        // 🔧 Limpiar nombre de archivo
-        const nombreArchivoLimpio = archivo
-          .replace(/\?/g, '_')
-          .replace(/[<>:"|*]/g, '_')
-          .split('/')
-          .pop();
-        
-        const rutaLocal = path.join(tempFolder, nombreArchivoLimpio);
-        fs.writeFileSync(rutaLocal, contenido);
-        archivosTemporales.push(rutaLocal);
-        
-        console.log(`✅ Descargado: ${nombreArchivoLimpio}`);
-        
-        // 🔧 Reemplazar con SOLO el nombre del archivo (sin ruta, sin file://)
-        wsdlContent = wsdlContent.replace(
-          `location="${archivo}"`,
-          `location="${nombreArchivoLimpio}"`
-        );
-      } catch (err) {
-        console.warn(`⚠️ No se pudo descargar ${archivo}:`, err.message);
-      }
-    }
-
-    // Guardar WSDL modificado
-    const wsdlTempPath = path.join(tempFolder, "billService.wsdl");
-    fs.writeFileSync(wsdlTempPath, wsdlContent);
-    archivosTemporales.push(wsdlTempPath);
-    console.log("WSDL guardado temporalmente en:", wsdlTempPath);
-
-    // 🆕 Intentar también procesar el archivo ns1.wsdl si existe
-    const ns1Path = path.join(tempFolder, "billService_ns1.wsdl");
-    if (fs.existsSync(ns1Path)) {
-      let ns1Content = fs.readFileSync(ns1Path, 'utf8');
-      
-      // Procesar imports/includes dentro del ns1.wsdl
-      const ns1ImportRegex = /(import|include)\s+.*?schemaLocation="([^"]+)"/g;
-      let ns1Match;
-      
-      while ((ns1Match = ns1ImportRegex.exec(ns1Content)) !== null) {
-        const schemaFile = ns1Match[2];
-        if (!schemaFile.startsWith('http') && !schemaFile.startsWith('file:')) {
-          try {
-            const schemaUrl = `${baseURL}?${schemaFile}`;
-            console.log(`Descargando schema: ${schemaFile}...`);
-            
-            const schemaContent = await descargarConAuth(schemaUrl, username, password);
-            
-            const nombreSchemaLimpio = schemaFile
-              .replace(/\?/g, '_')
-              .replace(/[<>:"|*]/g, '_')
-              .split('/')
-              .pop();
-            
-            const rutaSchemaLocal = path.join(tempFolder, nombreSchemaLimpio);
-            fs.writeFileSync(rutaSchemaLocal, schemaContent);
-            archivosTemporales.push(rutaSchemaLocal);
-            
-            console.log(`✅ Descargado schema: ${nombreSchemaLimpio}`);
-            
-            // 🔧 Reemplazar con SOLO el nombre del archivo
-            ns1Content = ns1Content.replace(
-              `schemaLocation="${schemaFile}"`,
-              `schemaLocation="${nombreSchemaLimpio}"`
-            );
-          } catch (err) {
-            console.warn(`⚠️ No se pudo descargar schema ${schemaFile}:`, err.message);
-          }
-        }
-      }
-      
-      // Guardar ns1.wsdl modificado
-      fs.writeFileSync(ns1Path, ns1Content);
-      console.log("✅ ns1.wsdl actualizado con nombres de archivo locales");
-    }
-
-    // Crear cliente SOAP desde el directorio temporal
-    const client = await soap.createClientAsync(wsdlTempPath, {
-      endpoint: baseURL,
-      wsdl_options: {
-        timeout: 60000,
-        strict: false,
-        // 🔧 Especificar el directorio base para imports relativos
-        wsdl_headers: {},
-      },
-      request_timeout: 60000,
-      disableCache: true,
-    });
-
-    console.log("Cliente SOAP creado");
-
-    const basicAuth = new soap.BasicAuthSecurity(username, password);
-    client.setSecurity(basicAuth);
-
-    console.log("Seguridad BasicAuth configurada");
-
-    const args = {
-      fileName: zipName,
-      contentFile: zipContent,
-    };
-
-    console.log("Enviando solicitud a SUNAT...");
-
-    const result = await Promise.race([
-      client.sendBillAsync(args),
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error("Timeout: SUNAT no respondió en 60 segundos")),
-          60000
-        )
-      ),
-    ]);
-
-    console.log("Respuesta recibida de SUNAT");
-
-    const [response] = Array.isArray(result) ? result : [result];
-
-    console.log("Analizando respuesta...");
-
-    if (!response) {
-      console.error("Respuesta vacía de SUNAT");
-      return {
-        success: false,
-        message: "SUNAT devolvió una respuesta vacía",
-      };
-    }
-
-    if (sunatConfig.mode === "beta") {
-      console.log("Respuesta completa:", JSON.stringify(response, null, 2));
-    }
-
-    if (response.applicationResponse) {
-      console.log("✅ SUNAT aceptó el comprobante");
-
-      const cdrData = Buffer.from(response.applicationResponse, "base64");
-
-      const cdrFolder = path.resolve("./facturas/cdr");
-      if (!fs.existsSync(cdrFolder)) {
-        fs.mkdirSync(cdrFolder, { recursive: true });
-      }
-
-      const cdrFileName = `R-${zipName}`;
-      const cdrPath = path.join(cdrFolder, cdrFileName);
-      fs.writeFileSync(cdrPath, cdrData);
-
-      console.log("CDR guardado en:", cdrPath);
-
-      return {
-        success: true,
-        cdrPath,
-        message: "Comprobante aceptado por SUNAT",
-      };
-    }
-
-    if (response.faultcode || response.faultstring) {
-      const errorCode = response.faultcode || "UNKNOWN";
-      const errorMessage = response.faultstring || "Error desconocido";
-
-      console.error("Error SOAP:", errorCode, "-", errorMessage);
-
-      return {
-        success: false,
-        message: `${errorCode}: ${errorMessage}`,
-      };
-    }
-
-    console.error("Respuesta inesperada de SUNAT:", response);
-    return {
-      success: false,
-      message: "Respuesta inesperada de SUNAT. Revisa los logs.",
-    };
-
-  } catch (err) {
-    console.error("Error en enviarFacturaASunat:", err);
-
-    let errorMessage = "Error al comunicarse con SUNAT";
-
-    if (err.message) {
-      errorMessage = err.message;
-    }
-
-    if (err.message?.includes("401")) {
-      errorMessage = "Error 401: Credenciales incorrectas. Verifica RUC, usuario y contraseña";
-    }
-
-    if (err.root?.Envelope?.Body?.Fault) {
-      const fault = err.root.Envelope.Body.Fault;
-      errorMessage = fault.faultstring || fault.faultcode || errorMessage;
-    }
-
-    if (err.code === "ECONNREFUSED") {
-      errorMessage = "No se pudo conectar con SUNAT (ECONNREFUSED)";
-    } else if (err.code === "ETIMEDOUT") {
-      errorMessage = "Timeout al conectar con SUNAT";
-    } else if (err.code === "ENOTFOUND") {
-      errorMessage = "No se pudo resolver el dominio de SUNAT";
-    }
-
-    return {
-      success: false,
-      message: errorMessage,
-      errorCode: err.code || "UNKNOWN",
-    };
-
-  } finally {
-    // Limpiar TODOS los archivos temporales
     try {
-      for (const archivo of archivosTemporales) {
-        if (fs.existsSync(archivo)) {
-          fs.unlinkSync(archivo);
-          console.log(`🗑️ Eliminado: ${path.basename(archivo)}`);
+      console.log('📤 Enviando comprobante a SUNAT:', nombreArchivo);
+
+      // Construir el SOAP Envelope manualmente
+      const soapEnvelope = this.construirSoapEnvelope({
+        zipBase64,
+        nombreArchivo,
+        rucEmisor,
+        usuarioSol,
+        claveSol
+      });
+
+      // URL según ambiente
+      const url = this.urls[ambiente];
+
+      // Enviar request HTTP directo
+      const response = await axios.post(url, soapEnvelope, {
+        headers: {
+          'Content-Type': 'text/xml;charset=UTF-8',
+          'SOAPAction': 'urn:sendBill'
+        },
+        timeout: 30000 // 30 segundos
+      });
+
+      console.log('✅ Respuesta recibida de SUNAT');
+
+      // Parsear respuesta SOAP
+      const resultado = await this.parsearRespuestaSunat(response.data);
+
+      return resultado;
+
+    } catch (error) {
+      console.error('❌ Error al enviar a SUNAT:', error.message);
+      
+      if (error.response) {
+        console.error('Respuesta de error:', error.response.data);
+        // Intentar parsear el error SOAP
+        try {
+          const errorSunat = await this.parsearErrorSunat(error.response.data);
+          throw new Error(`Error SUNAT: ${errorSunat.mensaje} (Código: ${errorSunat.codigo})`);
+        } catch (parseError) {
+          throw new Error(`Error HTTP ${error.response.status}: ${error.response.statusText}`);
         }
       }
-    } catch (cleanupErr) {
-      console.warn("No se pudieron eliminar archivos temporales:", cleanupErr.message);
+      
+      throw error;
     }
   }
-};
+
+  /**
+   * Construye el SOAP Envelope para sendBill
+   */
+  construirSoapEnvelope({ zipBase64, nombreArchivo, rucEmisor, usuarioSol, claveSol }) {
+    // Credenciales en formato Base64
+    const credenciales = Buffer.from(`${rucEmisor}${usuarioSol}:${claveSol}`).toString('base64');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
+               xmlns:ser="http://service.sunat.gob.pe">
+  <soap:Header>
+    <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd" 
+                   xmlns:wsu="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">
+      <wsse:UsernameToken>
+        <wsse:Username>${rucEmisor}${usuarioSol}</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">${claveSol}</wsse:Password>
+      </wsse:UsernameToken>
+    </wsse:Security>
+  </soap:Header>
+  <soap:Body>
+    <ser:sendBill>
+      <fileName>${nombreArchivo}</fileName>
+      <contentFile>${zipBase64}</contentFile>
+    </ser:sendBill>
+  </soap:Body>
+</soap:Envelope>`;
+  }
+
+  /**
+   * Parsea la respuesta exitosa de SUNAT
+   */
+  async parsearRespuestaSunat(xmlResponse) {
+    try {
+      const parsed = await parseStringPromise(xmlResponse, {
+        explicitArray: false,
+        ignoreAttrs: false,
+        tagNameProcessors: [name => name.replace(/^.*:/, '')] // Remueve namespace prefixes
+      });
+
+      // Navegar por la respuesta SOAP
+      const body = parsed.Envelope?.Body;
+      const sendBillResponse = body?.sendBillResponse;
+
+      if (!sendBillResponse) {
+        throw new Error('Respuesta SOAP inválida: no se encontró sendBillResponse');
+      }
+
+      // Extraer datos de la respuesta
+      const applicationResponse = sendBillResponse.applicationResponse;
+      
+      if (!applicationResponse) {
+        throw new Error('No se recibió applicationResponse de SUNAT');
+      }
+
+      // El CDR (Constancia de Recepción) viene en Base64
+      const cdrBase64 = applicationResponse;
+
+      // Decodificar para obtener información
+      const cdrBuffer = Buffer.from(cdrBase64, 'base64');
+
+      return {
+        exito: true,
+        codigoRespuesta: '0', // Aceptado
+        mensajeRespuesta: 'Comprobante aceptado por SUNAT',
+        cdrBase64: cdrBase64,
+        cdrBuffer: cdrBuffer
+      };
+
+    } catch (error) {
+      console.error('Error al parsear respuesta SUNAT:', error);
+      throw new Error(`Error al procesar respuesta de SUNAT: ${error.message}`);
+    }
+  }
+
+  /**
+   * Parsea errores SOAP de SUNAT
+   */
+  async parsearErrorSunat(xmlResponse) {
+    try {
+      const parsed = await parseStringPromise(xmlResponse, {
+        explicitArray: false,
+        tagNameProcessors: [name => name.replace(/^.*:/, '')]
+      });
+
+      const fault = parsed.Envelope?.Body?.Fault;
+      
+      if (fault) {
+        return {
+          codigo: fault.faultcode || 'ERROR',
+          mensaje: fault.faultstring || 'Error desconocido de SUNAT'
+        };
+      }
+
+      return {
+        codigo: 'ERROR',
+        mensaje: 'Error desconocido al procesar respuesta de SUNAT'
+      };
+
+    } catch (error) {
+      return {
+        codigo: 'PARSE_ERROR',
+        mensaje: 'No se pudo parsear el error de SUNAT'
+      };
+    }
+  }
+
+  /**
+   * Verifica el estado de un comprobante en SUNAT
+   */
+  async consultarEstado(options) {
+    const {
+      rucEmisor,
+      tipoComprobante,
+      serie,
+      numero,
+      usuarioSol,
+      claveSol,
+      ambiente = 'beta'
+    } = options;
+
+    try {
+      console.log(`📋 Consultando estado: ${tipoComprobante}-${serie}-${numero}`);
+
+      const soapEnvelope = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
+               xmlns:ser="http://service.sunat.gob.pe">
+  <soap:Header>
+    <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+      <wsse:UsernameToken>
+        <wsse:Username>${rucEmisor}${usuarioSol}</wsse:Username>
+        <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">${claveSol}</wsse:Password>
+      </wsse:UsernameToken>
+    </wsse:Security>
+  </soap:Header>
+  <soap:Body>
+    <ser:getStatus>
+      <rucComprobante>${rucEmisor}</rucComprobante>
+      <tipoComprobante>${tipoComprobante}</tipoComprobante>
+      <serieComprobante>${serie}</serieComprobante>
+      <numeroComprobante>${numero}</numeroComprobante>
+    </ser:getStatus>
+  </soap:Body>
+</soap:Envelope>`;
+
+      const url = this.urls[ambiente];
+
+      const response = await axios.post(url, soapEnvelope, {
+        headers: {
+          'Content-Type': 'text/xml;charset=UTF-8',
+          'SOAPAction': 'urn:getStatus'
+        },
+        timeout: 30000
+      });
+
+      const resultado = await this.parsearEstado(response.data);
+      return resultado;
+
+    } catch (error) {
+      console.error('❌ Error al consultar estado:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Parsea respuesta de getStatus
+   */
+  async parsearEstado(xmlResponse) {
+    const parsed = await parseStringPromise(xmlResponse, {
+      explicitArray: false,
+      tagNameProcessors: [name => name.replace(/^.*:/, '')]
+    });
+
+    const statusResponse = parsed.Envelope?.Body?.getStatusResponse;
+
+    if (!statusResponse) {
+      throw new Error('Respuesta de estado inválida');
+    }
+
+    return {
+      estado: statusResponse.statusCode,
+      mensaje: statusResponse.statusMessage || 'Sin mensaje'
+    };
+  }
+}
+
+module.exports = new SunatService();
