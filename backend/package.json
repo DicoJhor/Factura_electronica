@@ -7,6 +7,7 @@
     "dev": "nodemon index.js"
   },
   "dependencies": {
+    "xml2js": "^0.6.2",
     "@xmldom/xmldom": "^0.8.11",
     "adm-zip": "^0.5.16",
     "axios": "^1.13.2",
