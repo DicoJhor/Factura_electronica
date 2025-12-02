@@ -59,3 +59,4 @@ export const empresaService = {
     localStorage.removeItem('empresaActiva');
   }
 };
+export default empresaService;
