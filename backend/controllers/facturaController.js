@@ -231,14 +231,28 @@ export const emitirFactura = async (req, res) => {
   }
 };
 
+// En tu facturaController.js, actualiza el método listar:
+
 export const listar = async (req, res) => {
   try {
-    const { empresaId } = req.query;
+    // 🔧 CORREGIDO: Obtener empresaId de los params o query
+    const empresaId = req.params.empresaId || req.query.empresaId;
+    
+    console.log('📋 Solicitud de listado de facturas para empresa:', empresaId);
+
+    if (!empresaId) {
+      return res.status(400).json({
+        success: false,
+        message: 'El parámetro empresaId es requerido'
+      });
+    }
+
     const facturas = await listarFacturas(empresaId);
 
     res.json({
       success: true,
-      data: facturas
+      data: facturas,
+      total: facturas.length
     });
   } catch (err) {
     console.error("❌ Error al listar facturas:", err);
