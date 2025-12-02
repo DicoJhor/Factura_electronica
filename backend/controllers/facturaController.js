@@ -52,7 +52,7 @@ export const emitirFactura = async (req, res) => {
       // Si vienen los datos del cliente, buscamos o creamos
       const { tipoDoc, numeroDoc, nombre, direccion } = body.cliente;
 
-      // 🔧 Buscar si el cliente ya existe (usando numero_doc)
+      // Buscar si el cliente ya existe
       const [clientesExistentes] = await pool.query(
         'SELECT id FROM clientes WHERE numero_doc = ? AND empresa_id = ?',
         [numeroDoc, body.empresa_id]
@@ -63,7 +63,7 @@ export const emitirFactura = async (req, res) => {
         clienteId = clientesExistentes[0].id;
         console.log(`✅ Cliente existente encontrado: ID ${clienteId}`);
       } else {
-        // 🔧 Crear nuevo cliente (usando tipo_doc y numero_doc)
+        // Crear nuevo cliente
         const [resultCliente] = await pool.query(
           `INSERT INTO clientes (empresa_id, tipo_doc, numero_doc, nombre, direccion, activo, creado_en) 
            VALUES (?, ?, ?, ?, ?, 1, NOW())`,
@@ -106,8 +106,31 @@ export const emitirFactura = async (req, res) => {
       const igvItem = item.igv || (subtotalItem * 0.18);
       const totalItem = item.total || (subtotalItem + igvItem);
 
+      // 🔧 Si no hay producto_id, intentamos buscar o crear uno genérico
+      let productoId = item.producto_id;
+      
+      if (!productoId) {
+        // Buscar si existe un producto genérico
+        const [productosGenericos] = await pool.query(
+          'SELECT id FROM productos WHERE empresa_id = ? LIMIT 1',
+          [body.empresa_id]
+        );
+
+        if (productosGenericos.length > 0) {
+          productoId = productosGenericos[0].id;
+        } else {
+          // Crear un producto genérico si no existe ninguno
+          const [resultProducto] = await pool.query(
+            `INSERT INTO productos (empresa_id, nombre, codigo, precio, activo, creado_en) 
+             VALUES (?, 'PRODUCTO GENÉRICO', 'GEN-001', 0, 1, NOW())`,
+            [body.empresa_id]
+          );
+          productoId = resultProducto.insertId;
+        }
+      }
+
       await agregarDetalle(comprobanteId, {
-        producto_id: item.producto_id || null,
+        producto_id: productoId, // 🔧 Ahora siempre tendrá un ID válido
         cantidad: item.cantidad,
         unidad_medida: item.unidad_medida || 'NIU',
         descripcion: item.descripcion,
