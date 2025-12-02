@@ -126,16 +126,17 @@ export const emitirFactura = async (req, res) => {
   }
 };
 
-// ✅ FUNCIÓN CORREGIDA - Ahora maneja el parámetro empresaId
+// ✅ FUNCIÓN CORREGIDA CON JOIN A LAS TABLAS
 export const listar = async (req, res) => {
   try {
     const { empresaId } = req.query;
+    const usuarioId = req.usuario?.id; // Obtener el ID del usuario autenticado
     
     console.log('📋 Listando facturas para empresaId:', empresaId);
+    console.log('👤 Usuario ID:', usuarioId);
     
-    // Si se proporciona empresaId, filtrar por empresa
-    // Si no, devolver todas las facturas del usuario
-    const facturas = await listarFacturas(empresaId);
+    // Llamar al modelo con los filtros necesarios
+    const facturas = await listarFacturas(empresaId, usuarioId);
     
     console.log(`✅ Se encontraron ${facturas.length} facturas`);
     
