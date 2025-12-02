@@ -6,7 +6,7 @@ import Registro from './pages/Registro.jsx';
 import MisEmpresas from './pages/MisEmpresas.jsx';
 import FacturasList from './pages/FacturasList.jsx';
 import ComprobanteForm from './pages/ComprobanteForm.jsx';
-import ProductosList from './pages/ProductosList.jsx';
+import ProductosList from './pages/productosList.jsx';
 import './App.css';
 
 function App() {
