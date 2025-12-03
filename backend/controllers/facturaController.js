@@ -178,8 +178,27 @@ export const emitirFactura = async (req, res) => {
       productos: body.detalles
     });
 
-    // 7️⃣ Crear ZIP
-    const nombreBase = `${comprobanteData.serie}-${String(numero).padStart(6, "0")}`;
+    // 7️⃣ Crear ZIP con nombre correcto para SUNAT
+    // Obtener el RUC de la empresa
+    const [empresaData] = await pool.query(
+      'SELECT ruc FROM empresas WHERE id = ?',
+      [body.empresa_id]
+    );
+
+    if (!empresaData || empresaData.length === 0) {
+      throw new Error('No se encontró la empresa');
+    }
+
+    const ruc = empresaData[0].ruc;
+
+    // Determinar el código de tipo de comprobante según catálogo SUNAT
+    const tipoCpe = comprobanteData.tipo === '01' ? '01' : '03'; // 01=Factura, 03=Boleta
+
+    // Formato correcto: RUC-TIPO_CPE-SERIE-NUMERO
+    const nombreBase = `${ruc}-${tipoCpe}-${comprobanteData.serie}-${String(numero).padStart(6, "0")}`;
+
+    console.log(`📦 Nombre del archivo ZIP: ${nombreBase}.zip`);
+
     const zipPath = path.resolve(`./facturas/${nombreBase}.zip`);
 
     const zip = new AdmZip();
@@ -202,7 +221,7 @@ export const emitirFactura = async (req, res) => {
       });
     }
 
-    const resultado = await enviarFacturaASunat(zipPath, `${nombreBase}.zip`);
+    const resultado = await enviarFacturaASunat(zipPath, nombreBase);
 
     if (resultado.success) {
       await actualizarEstado(comprobanteId, "ACEPTADA", resultado.cdrPath || null);
@@ -247,7 +266,11 @@ export const listar = async (req, res) => {
       });
     }
 
+    console.log('📋 Listando facturas para empresa ID:', empresaId);
+
     const facturas = await listarFacturas(empresaId);
+
+    console.log(`✅ Se encontraron ${facturas.length} facturas para la empresa ${empresaId}`);
 
     res.json({
       success: true,
