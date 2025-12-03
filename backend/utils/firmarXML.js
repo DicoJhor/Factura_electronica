@@ -3,8 +3,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import forge from "node-forge";
-import { DOMParser, XMLSerializer } from "@xmldom/xmldom";
-import crypto from "crypto";
+import { SignedXml } from "xml-crypto";
+import { DOMParser } from "@xmldom/xmldom";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,9 +26,29 @@ const pemFromPfx = (pfxBuffer, pass) => {
   return { privateKeyPem, certPem };
 };
 
+// Clase personalizada para KeyInfo con el certificado X509
+class FileKeyInfo {
+  constructor(certPem) {
+    this.certPem = certPem;
+  }
+  
+  getKeyInfo() {
+    const certBase64 = this.certPem
+      .replace(/-----BEGIN CERTIFICATE-----/g, '')
+      .replace(/-----END CERTIFICATE-----/g, '')
+      .replace(/[\r\n]/g, '');
+    
+    return `<X509Data><X509Certificate>${certBase64}</X509Certificate></X509Data>`;
+  }
+  
+  getKey() {
+    return null;
+  }
+}
+
 export const firmarXML = (xmlPath, xmlContent) => {
   try {
-    console.log("🔐 Iniciando proceso de firma digital...");
+    console.log("🔐 Iniciando firma digital con xml-crypto...");
     
     const pfxPath = path.join(__dirname, "..", "certificados", "certificado_sunat.pfx");
     
@@ -42,77 +62,62 @@ export const firmarXML = (xmlPath, xmlContent) => {
       process.env.SUNAT_CERT_PASS || ""
     );
     
-    // Extraer certificado base64 limpio
-    const certBase64 = certPem
-      .replace(/-----BEGIN CERTIFICATE-----/g, '')
-      .replace(/-----END CERTIFICATE-----/g, '')
-      .replace(/[\r\n\s]/g, '');
+    console.log("✅ Certificado PFX cargado correctamente");
     
-    // PASO 1: Parsear el XML para canonicalización correcta
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlContent, "text/xml");
+    // Parsear el XML
+    const doc = new DOMParser().parseFromString(xmlContent, "text/xml");
     
-    // Verificar que el XML se parseó correctamente
-    if (!doc || !doc.documentElement) {
-      throw new Error("Error al parsear el XML");
-    }
+    // Configurar SignedXml
+    const sig = new SignedXml();
+    sig.signingKey = privateKeyPem;
     
-    // PASO 2: Canonicalizar el XML usando XMLSerializer (C14N)
-    const serializer = new XMLSerializer();
-    let canonicalXml = serializer.serializeToString(doc.documentElement);
+    // Configurar algoritmos específicos para SUNAT
+    sig.signatureAlgorithm = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+    sig.canonicalizationAlgorithm = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
     
-    // Normalizar espacios y saltos de línea (importante para SUNAT)
-    canonicalXml = canonicalXml
-      .replace(/>\s+</g, '><')  // Eliminar espacios entre tags
-      .trim();
+    // Agregar KeyInfo con el certificado
+    sig.keyInfoProvider = new FileKeyInfo(certPem);
     
-    // PASO 3: Calcular DigestValue del XML canonicalizado
-    const digestValue = crypto
-      .createHash('sha256')
-      .update(Buffer.from(canonicalXml, 'utf8'))
-      .digest('base64');
-    
-    console.log(`🔐 DigestValue: ${digestValue}`);
-    
-    // PASO 4: Crear SignedInfo (SIN espacios ni saltos de línea)
-    const signedInfo = `<ds:SignedInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><ds:Reference URI=""><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>${digestValue}</ds:DigestValue></ds:Reference></ds:SignedInfo>`;
-    
-    // PASO 5: Firmar SignedInfo
-    const signer = crypto.createSign('RSA-SHA256');
-    signer.update(Buffer.from(signedInfo, 'utf8'));
-    const signatureValue = signer.sign(privateKeyPem, 'base64');
-    
-    console.log(`✍️ SignatureValue: ${signatureValue.substring(0, 40)}...`);
-    
-    // PASO 6: Construir la Signature completa (SIN espacios)
-    const signature = `<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="SignatureSP">${signedInfo}<ds:SignatureValue>${signatureValue}</ds:SignatureValue><ds:KeyInfo><ds:X509Data><ds:X509Certificate>${certBase64}</ds:X509Certificate></ds:X509Data></ds:KeyInfo></ds:Signature>`;
-    
-    // PASO 7: Insertar la firma en ExtensionContent
-    // Buscar el patrón con o sin espacios
-    const extensionPattern = /<ext:ExtensionContent[\s]*>[\s]*<\/ext:ExtensionContent>/g;
-    
-    if (!xmlContent.match(extensionPattern)) {
-      throw new Error("No se encontró el elemento ExtensionContent en el XML");
-    }
-    
-    const signedXml = xmlContent.replace(
-      extensionPattern,
-      `<ext:ExtensionContent>${signature}</ext:ExtensionContent>`
+    // Agregar referencia con transformaciones específicas para SUNAT
+    sig.addReference(
+      "//*[local-name(.)='Invoice']",
+      [
+        "http://www.w3.org/2000/09/xmldsig#enveloped-signature"
+      ],
+      "http://www.w3.org/2001/04/xmlenc#sha256"
     );
     
-    // PASO 8: Guardar el XML firmado (UTF-8 sin BOM)
+    // CRÍTICO: Computar la firma con opciones específicas
+    sig.computeSignature(xmlContent, {
+      location: { 
+        reference: "//*[local-name(.)='ExtensionContent']",
+        action: "append" 
+      },
+      prefix: "ds",
+      attrs: { Id: "SignatureSP" }
+    });
+    
+    // Obtener el XML firmado
+    const signedXml = sig.getSignedXml();
+    
+    console.log("✅ Firma digital generada");
+    
+    // Guardar el XML firmado con UTF-8
     fs.writeFileSync(xmlPath, signedXml, { encoding: "utf8" });
     
-    console.log("✅ XML firmado correctamente");
-    console.log(`📄 Archivo: ${path.basename(xmlPath)}`);
+    console.log(`✅ XML firmado guardado: ${path.basename(xmlPath)}`);
     
-    // Verificación adicional
+    // Verificación
     const verificacion = fs.readFileSync(xmlPath, "utf8");
-    if (verificacion.includes('<ds:Signature')) {
-      console.log("✅ Firma XML insertada y verificada");
-    } else {
-      throw new Error("La firma no se insertó correctamente en el XML");
+    if (!verificacion.includes('<ds:Signature')) {
+      throw new Error("La firma no se insertó correctamente");
     }
+    
+    if (!verificacion.includes('<ds:DigestValue>')) {
+      throw new Error("DigestValue no encontrado en la firma");
+    }
+    
+    console.log("✅ Verificación de firma: OK");
     
     return xmlPath;
     
