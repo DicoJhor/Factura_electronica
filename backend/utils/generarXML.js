@@ -100,7 +100,7 @@ export const generarXML = async ({
         <cbc:Description><![CDATA[${descripcion}]]></cbc:Description>
       </cac:Item>
       <cac:Price>
-        <cbc:PriceAmount currencyID="PEN">${subtotalItem}</cbc:PriceAmount>
+        <cbc:PriceAmount currencyID="PEN">${price}</cbc:PriceAmount>
       </cac:Price>
     </cac:InvoiceLine>`;
   });
