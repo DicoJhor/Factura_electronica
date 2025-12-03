@@ -11,6 +11,9 @@ import forge from 'node-forge';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 🎭 MODO DEMOSTRACIÓN - Lee desde variable de entorno
+const MODO_DEMO = process.env.MODO_DEMO === 'true' || process.env.SUNAT_AMBIENTE === 'demo';
+
 // Función para extraer PEM del PFX
 const pemFromPfx = (pfxPath, password) => {
   const pfxBuffer = fsSync.readFileSync(pfxPath);
@@ -50,6 +53,14 @@ class SunatService {
     
     // Inicializar agente HTTPS con certificado
     this.inicializarCertificado();
+
+    // Mensaje de modo demo
+    if (MODO_DEMO) {
+      console.log('🎭 ========================================');
+      console.log('🎭 MODO DEMOSTRACIÓN ACTIVADO');
+      console.log('🎭 Todos los comprobantes serán ACEPTADOS');
+      console.log('🎭 ========================================\n');
+    }
   }
 
   /**
@@ -59,7 +70,9 @@ class SunatService {
     try {
       if (!fsSync.existsSync(this.certificadoPath)) {
         console.warn(`⚠️ Certificado no encontrado en: ${this.certificadoPath}`);
-        console.warn('⚠️ Las peticiones a SUNAT pueden fallar sin certificado');
+        if (!MODO_DEMO) {
+          console.warn('⚠️ Las peticiones a SUNAT pueden fallar sin certificado');
+        }
         this.httpsAgent = null;
         return;
       }
@@ -89,6 +102,39 @@ class SunatService {
    */
   async enviarComprobante(zipPath, nombreArchivo) {
     try {
+      // 🎭 MODO DEMO: Simular respuesta exitosa
+      if (MODO_DEMO) {
+        console.log('🎭 ========== MODO DEMOSTRACIÓN ==========');
+        console.log('🎭 Simulando envío a SUNAT...');
+        console.log(`🎭 Archivo: ${nombreArchivo}`);
+        
+        // Simular un pequeño delay para parecer real
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Crear un CDR simulado (opcional)
+        const cdrSimulado = this.crearCDRSimulado(nombreArchivo);
+        const cdrPath = zipPath.replace('.zip', '-CDR.zip');
+        
+        try {
+          await fs.writeFile(cdrPath, cdrSimulado);
+          console.log('💾 CDR simulado guardado en:', cdrPath);
+        } catch (e) {
+          console.warn('⚠️ No se pudo guardar CDR simulado:', e.message);
+        }
+
+        console.log('✅ Comprobante ACEPTADO (simulado)');
+        console.log('🎭 =======================================\n');
+
+        return {
+          success: true,
+          demo: true,
+          message: 'La Factura ha sido aceptada (MODO DEMOSTRACIÓN)',
+          codigoRespuesta: '0',
+          cdrPath: cdrPath
+        };
+      }
+
+      // ====== MODO NORMAL: Envío real a SUNAT ======
       console.log('📤 Enviando comprobante a SUNAT:', nombreArchivo);
 
       // Verificar que tenemos el certificado
@@ -178,6 +224,32 @@ class SunatService {
         error: error
       };
     }
+  }
+
+  /**
+   * Crea un CDR (Constancia de Recepción) simulado para modo demo
+   */
+  crearCDRSimulado(nombreArchivo) {
+    const cdrXml = `<?xml version="1.0" encoding="UTF-8"?>
+<ApplicationResponse xmlns="urn:oasis:names:specification:ubl:schema:xsd:ApplicationResponse-2"
+                     xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                     xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:UBLVersionID>2.0</cbc:UBLVersionID>
+  <cbc:CustomizationID>1.0</cbc:CustomizationID>
+  <cbc:ID>${nombreArchivo}</cbc:ID>
+  <cbc:IssueDate>${new Date().toISOString().split('T')[0]}</cbc:IssueDate>
+  <cbc:IssueTime>${new Date().toTimeString().split(' ')[0]}</cbc:IssueTime>
+  <cac:DocumentResponse>
+    <cac:Response>
+      <cbc:ResponseCode>0</cbc:ResponseCode>
+      <cbc:Description>La Factura ha sido aceptada (MODO DEMOSTRACIÓN)</cbc:Description>
+    </cac:Response>
+  </cac:DocumentResponse>
+</ApplicationResponse>`;
+
+    const zip = new AdmZip();
+    zip.addFile(`R-${nombreArchivo}.xml`, Buffer.from(cdrXml, 'utf8'));
+    return zip.toBuffer();
   }
 
   /**
