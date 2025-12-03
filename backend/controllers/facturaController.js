@@ -1,10 +1,8 @@
 // backend/controllers/facturaController.js
-
 import { generarYFirmarXML } from "../utils/generarYFirmarXML.js";
 import { enviarFacturaASunat } from "../services/sunatService.js";
 import { generarPDF } from "../utils/generarPDF.js";
 import { pool } from "../config/db.js";
-
 import {
   crearFactura,
   agregarDetalle,
@@ -12,15 +10,17 @@ import {
   generarSiguienteNumero,
   listarFacturas
 } from "../models/facturaModel.js";
-
 import AdmZip from "adm-zip";
 import path from "path";
+
+// Detectar si está en modo demo
+const MODO_DEMO = process.env.MODO_DEMO === 'true' || process.env.SUNAT_AMBIENTE === 'demo';
 
 export const emitirFactura = async (req, res) => {
   try {
     const body = req.body;
 
-    // Validación: ahora aceptamos "cliente" en lugar de "cliente_id"
+    // Validaciones básicas
     if (!body.cliente && !body.cliente_id) {
       return res.status(400).json({
         success: false,
@@ -42,14 +42,17 @@ export const emitirFactura = async (req, res) => {
       });
     }
 
-    // 🆕 1️⃣ BUSCAR O CREAR CLIENTE
+    console.log("\n🎬 ========== INICIANDO EMISIÓN DE COMPROBANTE ==========");
+    if (MODO_DEMO) {
+      console.log("🎭 MODO DEMOSTRACIÓN ACTIVADO - Todo saldrá exitoso");
+    }
+
+    // 1️⃣ BUSCAR O CREAR CLIENTE
     let clienteId;
     let clienteData;
 
     if (body.cliente_id) {
-      // Si viene cliente_id directamente, lo usamos y buscamos los datos
       clienteId = body.cliente_id;
-      
       const [clienteRows] = await pool.query(
         'SELECT * FROM clientes WHERE id = ? AND empresa_id = ?',
         [clienteId, body.empresa_id]
@@ -63,22 +66,18 @@ export const emitirFactura = async (req, res) => {
       console.log(`✅ Cliente encontrado: ${clienteData.nombre}`);
       
     } else if (body.cliente) {
-      // Si vienen los datos del cliente, buscamos o creamos
       const { tipoDoc, numeroDoc, nombre, direccion } = body.cliente;
 
-      // Buscar si el cliente ya existe
       const [clientesExistentes] = await pool.query(
         'SELECT * FROM clientes WHERE numero_doc = ? AND empresa_id = ?',
         [numeroDoc, body.empresa_id]
       );
 
       if (clientesExistentes.length > 0) {
-        // Cliente ya existe
         clienteData = clientesExistentes[0];
         clienteId = clienteData.id;
-        console.log(`✅ Cliente existente encontrado: ID ${clienteId}`);
+        console.log(`✅ Cliente existente: ID ${clienteId}`);
       } else {
-        // Crear nuevo cliente
         const [resultCliente] = await pool.query(
           `INSERT INTO clientes (empresa_id, tipo_doc, numero_doc, nombre, direccion, activo, creado_en) 
            VALUES (?, ?, ?, ?, ?, 1, NOW())`,
@@ -86,7 +85,6 @@ export const emitirFactura = async (req, res) => {
         );
         clienteId = resultCliente.insertId;
         
-        // Obtener el cliente recién creado
         const [nuevoCliente] = await pool.query(
           'SELECT * FROM clientes WHERE id = ?',
           [clienteId]
@@ -98,15 +96,16 @@ export const emitirFactura = async (req, res) => {
     }
 
     // 2️⃣ Obtener siguiente número
-    const numero = await generarSiguienteNumero(body.serie || "C001");
+    const numero = await generarSiguienteNumero(body.serie || "B001");
+    console.log(`📝 Número asignado: ${body.serie || "B001"}-${numero}`);
 
     // 3️⃣ Armar comprobante
     const comprobanteData = {
       empresa_id: body.empresa_id,
       cliente_id: clienteId,
       usuario_id: req.user?.id || 1,
-      tipo: body.tipo || "01",
-      serie: body.serie || "C001",
+      tipo: body.tipo || "03",
+      serie: body.serie || "B001",
       numero,
       fecha_emision: body.fecha_emision || new Date(),
       fecha_vencimiento: body.fecha_vencimiento || null,
@@ -122,6 +121,7 @@ export const emitirFactura = async (req, res) => {
     };
 
     const comprobanteId = await crearFactura(comprobanteData);
+    console.log(`✅ Comprobante creado en BD: ID ${comprobanteId}`);
 
     // 4️⃣ Guardar detalles
     for (const item of body.detalles) {
@@ -129,11 +129,9 @@ export const emitirFactura = async (req, res) => {
       const igvItem = item.igv || (subtotalItem * 0.18);
       const totalItem = item.total || (subtotalItem + igvItem);
 
-      // 🔧 Si no hay producto_id, intentamos buscar o crear uno genérico
       let productoId = item.producto_id;
       
       if (!productoId) {
-        // Buscar si existe un producto genérico
         const [productosGenericos] = await pool.query(
           'SELECT id FROM productos WHERE empresa_id = ? LIMIT 1',
           [body.empresa_id]
@@ -142,7 +140,6 @@ export const emitirFactura = async (req, res) => {
         if (productosGenericos.length > 0) {
           productoId = productosGenericos[0].id;
         } else {
-          // 🔧 Crear un producto genérico con las columnas correctas
           const [resultProducto] = await pool.query(
             `INSERT INTO productos (
               empresa_id, codigo, nombre, descripcion, precio, 
@@ -150,20 +147,11 @@ export const emitirFactura = async (req, res) => {
             ) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
             [
-              body.empresa_id, 
-              'GEN-001', 
-              'PRODUCTO GENÉRICO', 
-              'Producto genérico para comprobantes', 
-              0, 
-              0, 
-              0, 
-              'NIU', 
-              1, 
-              'activo'
+              body.empresa_id, 'GEN-001', 'PRODUCTO GENÉRICO', 
+              'Producto genérico para comprobantes', 0, 0, 0, 'NIU', 1, 'activo'
             ]
           );
           productoId = resultProducto.insertId;
-          console.log(`✅ Producto genérico creado: ID ${productoId}`);
         }
       }
 
@@ -181,8 +169,9 @@ export const emitirFactura = async (req, res) => {
       });
     }
 
-    // 🔧 5️⃣ CALCULAR NOMBRE BASE PRIMERO (antes de generar XML y PDF)
-    // Obtener el RUC de la empresa
+    console.log(`✅ Detalles guardados: ${body.detalles.length} items`);
+
+    // 5️⃣ Calcular nombre base del archivo
     const [empresaData] = await pool.query(
       'SELECT ruc FROM empresas WHERE id = ?',
       [body.empresa_id]
@@ -193,14 +182,10 @@ export const emitirFactura = async (req, res) => {
     }
 
     const ruc = empresaData[0].ruc;
+    const tipoCpe = comprobanteData.tipo === '01' ? '01' : '03';
+    const nombreBase = `${ruc}-${tipoCpe}-${comprobanteData.serie}-${String(numero).padStart(8, "0")}`;
 
-    // Determinar el código de tipo de comprobante según catálogo SUNAT
-    const tipoCpe = comprobanteData.tipo === '01' ? '01' : '03'; // 01=Factura, 03=Boleta
-
-    // Formato correcto: RUC-TIPO_CPE-SERIE-NUMERO
-    const nombreBase = `${ruc}-${tipoCpe}-${comprobanteData.serie}-${String(numero).padStart(6, "0")}`;
-
-    console.log(`📦 Nombre base del comprobante: ${nombreBase}`);
+    console.log(`📦 Nombre comprobante: ${nombreBase}`);
 
     // 6️⃣ Generar PDF
     const pdfPath = await generarPDF(
@@ -213,7 +198,9 @@ export const emitirFactura = async (req, res) => {
       body.detalles
     );
 
-    // 7️⃣ Generar XML con el nombre correcto y datos del cliente
+    console.log(`✅ PDF generado: ${path.basename(pdfPath)}`);
+
+    // 7️⃣ Generar y firmar XML
     const xmlPath = await generarYFirmarXML({
       serie: comprobanteData.serie,
       numero: comprobanteData.numero,
@@ -226,73 +213,90 @@ export const emitirFactura = async (req, res) => {
         nombre: clienteData.nombre,
         direccion: clienteData.direccion,
         tipoDoc: clienteData.tipo_doc === 'RUC' ? '6' : '1'
-      
       },
       productos: body.detalles,
-      nombreArchivo: nombreBase // 🆕 Pasar el nombre completo
+      nombreArchivo: nombreBase
     });
+
+    console.log(`✅ XML firmado: ${path.basename(xmlPath)}`);
 
     // 8️⃣ Crear ZIP
     const zipPath = path.resolve(`./facturas/${nombreBase}.zip`);
-
     const zip = new AdmZip();
     zip.addLocalFile(xmlPath);
     zip.writeZip(zipPath);
 
-    console.log(`✅ ZIP creado: ${zipPath}`);
+    console.log(`✅ ZIP creado: ${path.basename(zipPath)}`);
 
-    // 9️⃣ Enviar a SUNAT (si no está en modo desarrollo)
-    const modoDesarrollo = process.env.MODO_DESARROLLO === "true";
-
-    if (modoDesarrollo) {
-      await actualizarEstado(comprobanteId, "GENERADA", null);
-
-      return res.json({
-        success: true,
-        status: "GENERADA",
-        id: comprobanteId,
-        serie: comprobanteData.serie,
-        numero,
-        pdf: `/facturas/${path.basename(pdfPath)}`
-      });
-    }
-
+    // 9️⃣ Enviar a SUNAT (o simular en modo demo)
     const resultado = await enviarFacturaASunat(zipPath, nombreBase);
 
     if (resultado.success) {
+      // ✅ ÉXITO - Actualizar estado a ACEPTADA
       await actualizarEstado(comprobanteId, "ACEPTADA", resultado.cdrPath || null);
+
+      console.log("✅ ========== COMPROBANTE ACEPTADO ==========");
+      if (resultado.demo) {
+        console.log("🎭 MODO DEMO: Simulación exitosa");
+      }
+      console.log(`📄 Serie-Número: ${comprobanteData.serie}-${numero}`);
+      console.log(`💰 Total: S/ ${comprobanteData.total}`);
+      console.log("==============================================\n");
 
       return res.json({
         success: true,
         status: "ACEPTADA",
-        id: comprobanteId,
-        pdf: `/facturas/${path.basename(pdfPath)}`,
-        cdr: resultado.cdrPath
+        message: resultado.demo 
+          ? "🎭 Comprobante generado exitosamente (Modo Demostración)" 
+          : "Comprobante aceptado por SUNAT",
+        data: {
+          id: comprobanteId,
+          serie: comprobanteData.serie,
+          numero: numero,
+          tipo: comprobanteData.tipo === '01' ? 'FACTURA' : 'BOLETA',
+          total: comprobanteData.total,
+          cliente: clienteData.nombre,
+          pdf: `/facturas/${path.basename(pdfPath)}`,
+          xml: `/facturas/${nombreBase}.xml`,
+          cdr: resultado.cdrPath ? `/facturas/${path.basename(resultado.cdrPath)}` : null,
+          demo: resultado.demo || false
+        }
       });
     } else {
+      // ❌ ERROR - Actualizar estado a RECHAZADA
       await actualizarEstado(comprobanteId, "RECHAZADA", resultado.message);
+
+      console.error("❌ ========== COMPROBANTE RECHAZADO ==========");
+      console.error(`Error: ${resultado.message}`);
+      console.error("==============================================\n");
 
       return res.json({
         success: false,
         status: "RECHAZADA",
+        message: "Error al enviar a SUNAT",
         error: resultado.message,
-        pdf: `/facturas/${path.basename(pdfPath)}`
+        data: {
+          id: comprobanteId,
+          pdf: `/facturas/${path.basename(pdfPath)}`
+        }
       });
     }
 
   } catch (err) {
-    console.error("❌ emitirFactura err:", err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("❌ Error general:", err.message);
+    console.error(err.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: err.message,
+      error: err.toString()
+    });
   }
 };
 
 export const listar = async (req, res) => {
   try {
-    // 🔧 CORREGIDO: Obtener empresaId de los params o query
     const empresaId = req.params.empresaId || req.query.empresaId;
     
-    console.log('📋 Solicitud de listado de facturas para empresa:', empresaId);
-
     if (!empresaId) {
       return res.status(400).json({
         success: false,
@@ -300,11 +304,7 @@ export const listar = async (req, res) => {
       });
     }
 
-    console.log('📋 Listando facturas para empresa ID:', empresaId);
-
     const facturas = await listarFacturas(empresaId);
-
-    console.log(`✅ Se encontraron ${facturas.length} facturas para la empresa ${empresaId}`);
 
     res.json({
       success: true,
