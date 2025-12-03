@@ -26,10 +26,10 @@ export const firmarXML = (xmlPath, xmlContent) => {
     const pfxBuffer = fs.readFileSync(pfxPath);
     const { privateKeyPem, certPem } = pemFromPfx(pfxBuffer, process.env.SUNAT_CERT_PASS || "");
     
-    // Crear hash del XML (sin la firma)
+    // 🔧 PASO 1: Crear el hash del XML ORIGINAL (sin firma)
     const hash = crypto.createHash('sha256').update(xmlContent, 'utf8').digest('base64');
     
-    // Crear SignedInfo
+    // 🔧 PASO 2: Crear SignedInfo
     const signedInfo = `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
   <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
   <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
@@ -42,33 +42,53 @@ export const firmarXML = (xmlPath, xmlContent) => {
   </Reference>
 </SignedInfo>`;
     
-    // Firmar el SignedInfo
+    // 🔧 PASO 3: Firmar el SignedInfo usando canonicalización
+    const canonicalSignedInfo = signedInfo
+      .replace(/\n/g, '')
+      .replace(/>\s+</g, '><')
+      .trim();
+    
     const sign = crypto.createSign('RSA-SHA256');
-    sign.update(signedInfo);
+    sign.update(canonicalSignedInfo);
     const signature = sign.sign(privateKeyPem, 'base64');
     
-    // Extraer el certificado sin headers
+    // 🔧 PASO 4: Extraer el certificado sin headers
     const certBase64 = certPem
       .replace(/-----BEGIN CERTIFICATE-----/, '')
       .replace(/-----END CERTIFICATE-----/, '')
       .replace(/\n/g, '');
     
-    // Crear la firma XML completa
-    const signatureXml = `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
-  ${signedInfo}
-  <SignatureValue>${signature}</SignatureValue>
-  <KeyInfo>
-    <X509Data>
-      <X509Certificate>${certBase64}</X509Certificate>
-    </X509Data>
-  </KeyInfo>
-</Signature>`;
+    // 🔧 PASO 5: Construir la firma completa
+    const signatureXml = `
+  <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="SignatureSP">
+    <ds:SignedInfo>
+      <ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+      <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <ds:Reference URI="">
+        <ds:Transforms>
+          <ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+        </ds:Transforms>
+        <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <ds:DigestValue>${hash}</ds:DigestValue>
+      </ds:Reference>
+    </ds:SignedInfo>
+    <ds:SignatureValue>${signature}</ds:SignatureValue>
+    <ds:KeyInfo>
+      <ds:X509Data>
+        <ds:X509Certificate>${certBase64}</ds:X509Certificate>
+      </ds:X509Data>
+    </ds:KeyInfo>
+  </ds:Signature>`;
     
-    // Insertar la firma antes de cerrar el tag Invoice
-    const signedXml = xmlContent.replace('</Invoice>', `${signatureXml}\n</Invoice>`);
+    // 🔧 PASO 6: Insertar la firma en la sección ExtensionContent
+    const signedXml = xmlContent.replace(
+      /<ext:ExtensionContent>\s*<\/ext:ExtensionContent>/,
+      `<ext:ExtensionContent>${signatureXml}
+      </ext:ExtensionContent>`
+    );
     
-    // 🔧 CAMBIO: Sobrescribir el archivo original, no crear uno nuevo con _signed
-    const signedPath = xmlPath; // Mismo nombre, sobrescribe el archivo
+    // 🔧 PASO 7: Guardar el XML firmado
+    const signedPath = xmlPath;
     
     fs.writeFileSync(signedPath, signedXml, "utf8");
     
