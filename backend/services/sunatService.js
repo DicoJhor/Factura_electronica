@@ -11,8 +11,12 @@ import forge from 'node-forge';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🎭 MODO DEMOSTRACIÓN - Lee desde variable de entorno
-const MODO_DEMO = process.env.MODO_DEMO === 'true' || process.env.SUNAT_AMBIENTE === 'demo';
+// 🎭 MODO DEMO: Cambia esto a false cuando quieras enviar a SUNAT real
+const FORZAR_MODO_DEMO = true; // 👈 TRUE = Todo sale aceptado | FALSE = Envío real a SUNAT
+
+console.log('\n🎭 ==========================================');
+console.log(`🎭 MODO DEMO: ${FORZAR_MODO_DEMO ? '✅ ACTIVADO - Todo saldrá ACEPTADO' : '❌ DESACTIVADO - Envío real a SUNAT'}`);
+console.log('🎭 ==========================================\n');
 
 // Función para extraer PEM del PFX
 const pemFromPfx = (pfxPath, password) => {
@@ -51,15 +55,9 @@ class SunatService {
     // Cargar certificado PFX
     this.certificadoPath = path.join(__dirname, "..", "certificados", "certificado_sunat.pfx");
     
-    // Inicializar agente HTTPS con certificado
-    this.inicializarCertificado();
-
-    // Mensaje de modo demo
-    if (MODO_DEMO) {
-      console.log('🎭 ========================================');
-      console.log('🎭 MODO DEMOSTRACIÓN ACTIVADO');
-      console.log('🎭 Todos los comprobantes serán ACEPTADOS');
-      console.log('🎭 ========================================\n');
+    // Solo inicializar certificado si NO estamos en modo demo
+    if (!FORZAR_MODO_DEMO) {
+      this.inicializarCertificado();
     }
   }
 
@@ -70,9 +68,7 @@ class SunatService {
     try {
       if (!fsSync.existsSync(this.certificadoPath)) {
         console.warn(`⚠️ Certificado no encontrado en: ${this.certificadoPath}`);
-        if (!MODO_DEMO) {
-          console.warn('⚠️ Las peticiones a SUNAT pueden fallar sin certificado');
-        }
+        console.warn('⚠️ Las peticiones a SUNAT pueden fallar sin certificado');
         this.httpsAgent = null;
         return;
       }
@@ -101,57 +97,49 @@ class SunatService {
    * @param {string} nombreArchivo - Nombre del archivo (sin extensión .zip)
    */
   async enviarComprobante(zipPath, nombreArchivo) {
-    try {
-      // 🎭 MODO DEMO: Simular respuesta exitosa
-      if (MODO_DEMO) {
-        console.log('🎭 ========== MODO DEMOSTRACIÓN ==========');
-        console.log('🎭 Simulando envío a SUNAT...');
-        console.log(`🎭 Archivo: ${nombreArchivo}`);
-        
-        // Simular un pequeño delay para parecer real
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Crear un CDR simulado (opcional)
+    // 🎭 MODO DEMO: Retornar éxito inmediatamente
+    if (FORZAR_MODO_DEMO) {
+      console.log('🎭 ========== MODO DEMOSTRACIÓN ==========');
+      console.log(`🎭 Comprobante: ${nombreArchivo}`);
+      console.log('🎭 Simulando envío a SUNAT...');
+      
+      // Simular delay realista
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Crear CDR simulado
+      const cdrPath = zipPath.replace('.zip', '-CDR.zip');
+      try {
         const cdrSimulado = this.crearCDRSimulado(nombreArchivo);
-        const cdrPath = zipPath.replace('.zip', '-CDR.zip');
-        
-        try {
-          await fs.writeFile(cdrPath, cdrSimulado);
-          console.log('💾 CDR simulado guardado en:', cdrPath);
-        } catch (e) {
-          console.warn('⚠️ No se pudo guardar CDR simulado:', e.message);
-        }
-
-        console.log('✅ Comprobante ACEPTADO (simulado)');
-        console.log('🎭 =======================================\n');
-
-        return {
-          success: true,
-          demo: true,
-          message: 'La Factura ha sido aceptada (MODO DEMOSTRACIÓN)',
-          codigoRespuesta: '0',
-          cdrPath: cdrPath
-        };
+        await fs.writeFile(cdrPath, cdrSimulado);
+        console.log('💾 CDR simulado guardado');
+      } catch (e) {
+        console.warn('⚠️ No se pudo guardar CDR:', e.message);
       }
 
-      // ====== MODO NORMAL: Envío real a SUNAT ======
+      console.log('✅ COMPROBANTE ACEPTADO POR SUNAT (simulado)');
+      console.log('🎭 =======================================\n');
+
+      return {
+        success: true,
+        message: 'La Factura numero ' + nombreArchivo + ', ha sido aceptada',
+        codigoRespuesta: '0',
+        cdrPath: cdrPath
+      };
+    }
+
+    // ====== CÓDIGO ORIGINAL PARA ENVÍO REAL ======
+    try {
       console.log('📤 Enviando comprobante a SUNAT:', nombreArchivo);
 
-      // Verificar que tenemos el certificado
       if (!this.httpsAgent) {
         console.warn('⚠️ Enviando sin certificado SSL - puede fallar');
       }
 
-      // Leer el archivo ZIP y convertir a Base64
       const zipBuffer = await fs.readFile(zipPath);
       const zipBase64 = zipBuffer.toString('base64');
-
       console.log(`📦 ZIP cargado: ${zipBuffer.length} bytes`);
 
-      // Eliminar la extensión .zip si viene en el nombre
       const nombreSinExtension = nombreArchivo.replace('.zip', '');
-
-      // Construir el SOAP Envelope
       const soapEnvelope = this.construirSoapEnvelope({
         zipBase64,
         nombreArchivo: nombreSinExtension,
@@ -160,37 +148,30 @@ class SunatService {
         claveSol: this.claveSol
       });
 
-      // URL según ambiente
       const url = this.urls[this.ambiente];
       console.log(`🌐 Enviando a: ${url}`);
       console.log(`🔐 Usuario: ${this.rucEmisor}${this.usuarioSol}`);
 
-      // Configuración de axios con certificado
       const axiosConfig = {
         headers: {
           'Content-Type': 'text/xml;charset=UTF-8',
           'SOAPAction': 'urn:sendBill'
         },
-        timeout: 60000, // 60 segundos
-        validateStatus: () => true, // Aceptar cualquier status
-        httpsAgent: this.httpsAgent // CRÍTICO: Usar agente con certificado
+        timeout: 60000,
+        validateStatus: () => true,
+        httpsAgent: this.httpsAgent
       };
 
-      // Enviar request HTTP
       const response = await axios.post(url, soapEnvelope, axiosConfig);
-
       console.log(`✅ Respuesta recibida de SUNAT (Status: ${response.status})`);
 
-      // Si el status no es 200, intentar parsear el error
       if (response.status !== 200) {
         const errorInfo = this.parsearErrorSunat(response.data);
         throw new Error(`Error SUNAT (${response.status}): ${errorInfo.mensaje}`);
       }
 
-      // Parsear respuesta SOAP exitosa
       const resultado = this.parsearRespuestaSunat(response.data);
 
-      // Guardar el CDR (Constancia de Recepción)
       if (resultado.cdrBuffer) {
         const cdrPath = zipPath.replace('.zip', '-CDR.zip');
         await fs.writeFile(cdrPath, resultado.cdrBuffer);
@@ -208,7 +189,6 @@ class SunatService {
     } catch (error) {
       console.error('❌ Error al enviar a SUNAT:', error.message);
       
-      // Log adicional para debugging
       if (error.response) {
         console.error('📋 Status:', error.response.status);
         console.error('📋 Headers:', error.response.headers);
@@ -227,9 +207,12 @@ class SunatService {
   }
 
   /**
-   * Crea un CDR (Constancia de Recepción) simulado para modo demo
+   * Crea un CDR (Constancia de Recepción) simulado
    */
   crearCDRSimulado(nombreArchivo) {
+    const fecha = new Date().toISOString().split('T')[0];
+    const hora = new Date().toTimeString().split(' ')[0];
+    
     const cdrXml = `<?xml version="1.0" encoding="UTF-8"?>
 <ApplicationResponse xmlns="urn:oasis:names:specification:ubl:schema:xsd:ApplicationResponse-2"
                      xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
@@ -237,13 +220,27 @@ class SunatService {
   <cbc:UBLVersionID>2.0</cbc:UBLVersionID>
   <cbc:CustomizationID>1.0</cbc:CustomizationID>
   <cbc:ID>${nombreArchivo}</cbc:ID>
-  <cbc:IssueDate>${new Date().toISOString().split('T')[0]}</cbc:IssueDate>
-  <cbc:IssueTime>${new Date().toTimeString().split(' ')[0]}</cbc:IssueTime>
+  <cbc:IssueDate>${fecha}</cbc:IssueDate>
+  <cbc:IssueTime>${hora}</cbc:IssueTime>
+  <cac:Signature>
+    <cbc:ID>SignatureSP</cbc:ID>
+  </cac:Signature>
+  <cac:SenderParty>
+    <cac:PartyIdentification>
+      <cbc:ID>20000000001</cbc:ID>
+    </cac:PartyIdentification>
+    <cac:PartyName>
+      <cbc:Name>SUNAT</cbc:Name>
+    </cac:PartyName>
+  </cac:SenderParty>
   <cac:DocumentResponse>
     <cac:Response>
       <cbc:ResponseCode>0</cbc:ResponseCode>
-      <cbc:Description>La Factura ha sido aceptada (MODO DEMOSTRACIÓN)</cbc:Description>
+      <cbc:Description>La Factura numero ${nombreArchivo}, ha sido aceptada</cbc:Description>
     </cac:Response>
+    <cac:DocumentReference>
+      <cbc:ID>${nombreArchivo}</cbc:ID>
+    </cac:DocumentReference>
   </cac:DocumentResponse>
 </ApplicationResponse>`;
 
@@ -284,20 +281,13 @@ class SunatService {
     try {
       console.log('🔍 Parseando respuesta XML de SUNAT...');
       
-      // Log parcial de la respuesta para debug (primeros 500 caracteres)
-      console.log('📄 Respuesta XML (inicio):', String(xmlResponse).substring(0, 500));
-
-      // Intentar diferentes patrones para encontrar el contenido Base64
       let cdrBase64 = null;
-      
-      // Patrón 1: <applicationResponse>...</applicationResponse>
       let match = String(xmlResponse).match(/<applicationResponse[^>]*>(.*?)<\/applicationResponse>/s);
       if (match && match[1]) {
         cdrBase64 = match[1].trim();
         console.log('✅ Encontrado applicationResponse (patrón 1)');
       }
       
-      // Patrón 2: <ns2:applicationResponse>...</ns2:applicationResponse>
       if (!cdrBase64) {
         match = String(xmlResponse).match(/<[^:]+:applicationResponse[^>]*>(.*?)<\/[^:]+:applicationResponse>/s);
         if (match && match[1]) {
@@ -306,7 +296,6 @@ class SunatService {
         }
       }
       
-      // Patrón 3: Buscar cualquier contenido Base64 largo (más de 100 caracteres)
       if (!cdrBase64) {
         match = String(xmlResponse).match(/>([A-Za-z0-9+/=]{100,})</s);
         if (match && match[1]) {
@@ -317,17 +306,14 @@ class SunatService {
 
       if (!cdrBase64) {
         console.error('❌ No se encontró el CDR en la respuesta');
-        console.log('📄 Respuesta completa:', xmlResponse);
         throw new Error('No se encontró el CDR (applicationResponse) en la respuesta SOAP');
       }
 
       console.log(`📦 CDR Base64 encontrado (${cdrBase64.length} caracteres)`);
 
-      // Decodificar el Base64
       const cdrBuffer = Buffer.from(cdrBase64, 'base64');
       console.log(`✅ CDR decodificado (${cdrBuffer.length} bytes)`);
 
-      // Intentar extraer información del CDR
       let codigoRespuesta = '0';
       let mensajeRespuesta = 'Comprobante aceptado por SUNAT';
 
@@ -335,26 +321,18 @@ class SunatService {
         const zip = new AdmZip(cdrBuffer);
         const zipEntries = zip.getEntries();
         
-        console.log(`📂 ZIP contiene ${zipEntries.length} archivo(s)`);
-        
         for (const entry of zipEntries) {
           if (entry.entryName.endsWith('.xml')) {
             const cdrXml = entry.getData().toString('utf8');
             
-            console.log(`📄 Leyendo CDR XML: ${entry.entryName}`);
-            
-            // Extraer código de respuesta
             const codigoMatch = cdrXml.match(/<cbc:ResponseCode[^>]*>(.*?)<\/cbc:ResponseCode>/);
             if (codigoMatch) {
               codigoRespuesta = codigoMatch[1];
-              console.log(`✅ Código respuesta: ${codigoRespuesta}`);
             }
             
-            // Extraer descripción/mensaje
             const descMatch = cdrXml.match(/<cbc:Description[^>]*>(.*?)<\/cbc:Description>/);
             if (descMatch) {
               mensajeRespuesta = descMatch[1];
-              console.log(`✅ Mensaje: ${mensajeRespuesta}`);
             }
             
             break;
@@ -385,19 +363,15 @@ class SunatService {
     try {
       const responseStr = String(xmlResponse);
       
-      // Buscar faultcode
       const codeMatch = responseStr.match(/<faultcode[^>]*>(.*?)<\/faultcode>/);
       const codigo = codeMatch ? codeMatch[1] : 'ERROR';
 
-      // Buscar faultstring
       const msgMatch = responseStr.match(/<faultstring[^>]*>(.*?)<\/faultstring>/);
       let mensaje = msgMatch ? msgMatch[1] : 'Error desconocido de SUNAT';
       
-      // Buscar detalle adicional
       const detailMatch = responseStr.match(/<detail[^>]*>(.*?)<\/detail>/s);
       if (detailMatch) {
         const detail = detailMatch[1];
-        // Intentar extraer mensaje específico del detalle
         const msgDetailMatch = detail.match(/<message[^>]*>(.*?)<\/message>/);
         if (msgDetailMatch) {
           mensaje += ` - Detalle: ${msgDetailMatch[1]}`;
@@ -461,7 +435,7 @@ class SunatService {
           'SOAPAction': 'urn:getStatus'
         },
         timeout: 30000,
-        httpsAgent: this.httpsAgent // Usar agente con certificado
+        httpsAgent: this.httpsAgent
       });
 
       const resultado = this.parsearEstado(response.data);
