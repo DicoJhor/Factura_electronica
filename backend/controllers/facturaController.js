@@ -219,10 +219,14 @@ export const emitirFactura = async (req, res) => {
       numero: comprobanteData.numero,
       total: comprobanteData.total,
       cliente_id: clienteId,
+      empresa_id: body.empresa_id,
       cliente: {
         ruc: clienteData.numero_doc,
         documento: clienteData.numero_doc,
-        nombre: clienteData.nombre
+        nombre: clienteData.nombre,
+        direccion: ckuebteData.direccion,
+        tipoDoc: clienteData.tipo_doc === 'RUC' ? '6' : '1'
+      
       },
       productos: body.detalles,
       nombreArchivo: nombreBase // 🆕 Pasar el nombre completo
