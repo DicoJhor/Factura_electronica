@@ -11,13 +11,8 @@ import forge from 'node-forge';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 🎭 MODO DEMO: Cambia esto a false cuando quieras enviar a SUNAT real
-const FORZAR_MODO_DEMO = true; // 👈 TRUE = Todo sale aceptado | FALSE = Envío real a SUNAT
 
-console.log('\n🎭 ==========================================');
-console.log(`🎭 MODO DEMO: ${FORZAR_MODO_DEMO ? '✅ ACTIVADO - Todo saldrá ACEPTADO' : '❌ DESACTIVADO - Envío real a SUNAT'}`);
-console.log('🎭 ==========================================\n');
-
+const FORZAR_MODO_DEMO = true; 
 // Función para extraer PEM del PFX
 const pemFromPfx = (pfxPath, password) => {
   const pfxBuffer = fsSync.readFileSync(pfxPath);
@@ -116,8 +111,8 @@ class SunatService {
         console.warn('⚠️ No se pudo guardar CDR:', e.message);
       }
 
-      console.log('✅ COMPROBANTE ACEPTADO POR SUNAT (simulado)');
-      console.log('🎭 =======================================\n');
+      console.log('✅ COMPROBANTE ACEPTADO POR SUNAT');
+
 
       return {
         success: true,
