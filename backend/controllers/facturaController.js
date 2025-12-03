@@ -6,15 +6,36 @@ import { pool } from "../config/db.js";
 import {
   crearFactura,
   agregarDetalle,
-  actualizarEstado,
   generarSiguienteNumero,
   listarFacturas
 } from "../models/facturaModel.js";
 import AdmZip from "adm-zip";
 import path from "path";
+import crypto from "crypto";
+import fs from "fs/promises";
 
-// Detectar si está en modo demo
-const MODO_DEMO = process.env.MODO_DEMO === 'true' || process.env.SUNAT_AMBIENTE === 'demo';
+// 🕐 Función para obtener fecha/hora en zona horaria de Perú (UTC-5)
+const obtenerFechaHoraPeru = () => {
+  const ahora = new Date();
+  // Convertir a UTC-5 (Perú)
+  const offsetPeru = -5 * 60; // -5 horas en minutos
+  const offsetLocal = ahora.getTimezoneOffset(); // offset del servidor en minutos
+  const diff = offsetPeru - offsetLocal;
+  const fechaPeru = new Date(ahora.getTime() + diff * 60 * 1000);
+  return fechaPeru;
+};
+
+// 🕐 Formatear fecha para MySQL en hora de Perú
+const formatearFechaMySQL = (fecha = null) => {
+  const f = fecha || obtenerFechaHoraPeru();
+  const año = f.getFullYear();
+  const mes = String(f.getMonth() + 1).padStart(2, '0');
+  const dia = String(f.getDate()).padStart(2, '0');
+  const hora = String(f.getHours()).padStart(2, '0');
+  const minutos = String(f.getMinutes()).padStart(2, '0');
+  const segundos = String(f.getSeconds()).padStart(2, '0');
+  return `${año}-${mes}-${dia} ${hora}:${minutos}:${segundos}`;
+};
 
 export const emitirFactura = async (req, res) => {
   try {
@@ -43,9 +64,8 @@ export const emitirFactura = async (req, res) => {
     }
 
     console.log("\n🎬 ========== INICIANDO EMISIÓN DE COMPROBANTE ==========");
-    if (MODO_DEMO) {
-      console.log("🎭 MODO DEMOSTRACIÓN ACTIVADO - Todo saldrá exitoso");
-    }
+    const fechaHoraPeru = obtenerFechaHoraPeru();
+    console.log(`🕐 Fecha/Hora Perú: ${formatearFechaMySQL(fechaHoraPeru)}`);
 
     // 1️⃣ BUSCAR O CREAR CLIENTE
     let clienteId;
@@ -78,10 +98,11 @@ export const emitirFactura = async (req, res) => {
         clienteId = clienteData.id;
         console.log(`✅ Cliente existente: ID ${clienteId}`);
       } else {
+        const fechaCreacion = formatearFechaMySQL();
         const [resultCliente] = await pool.query(
           `INSERT INTO clientes (empresa_id, tipo_doc, numero_doc, nombre, direccion, activo, creado_en) 
-           VALUES (?, ?, ?, ?, ?, 1, NOW())`,
-          [body.empresa_id, tipoDoc, numeroDoc, nombre, direccion || null]
+           VALUES (?, ?, ?, ?, ?, 1, ?)`,
+          [body.empresa_id, tipoDoc, numeroDoc, nombre, direccion || null, fechaCreacion]
         );
         clienteId = resultCliente.insertId;
         
@@ -99,7 +120,7 @@ export const emitirFactura = async (req, res) => {
     const numero = await generarSiguienteNumero(body.serie || "B001");
     console.log(`📝 Número asignado: ${body.serie || "B001"}-${numero}`);
 
-    // 3️⃣ Armar comprobante
+    // 3️⃣ Armar comprobante con fecha/hora de Perú
     const comprobanteData = {
       empresa_id: body.empresa_id,
       cliente_id: clienteId,
@@ -107,7 +128,7 @@ export const emitirFactura = async (req, res) => {
       tipo: body.tipo || "03",
       serie: body.serie || "B001",
       numero,
-      fecha_emision: body.fecha_emision || new Date(),
+      fecha_emision: body.fecha_emision || formatearFechaMySQL(fechaHoraPeru),
       fecha_vencimiento: body.fecha_vencimiento || null,
       moneda: body.moneda || "PEN",
       tipo_cambio: body.tipo_cambio || 1,
@@ -140,15 +161,16 @@ export const emitirFactura = async (req, res) => {
         if (productosGenericos.length > 0) {
           productoId = productosGenericos[0].id;
         } else {
+          const fechaCreacion = formatearFechaMySQL();
           const [resultProducto] = await pool.query(
             `INSERT INTO productos (
               empresa_id, codigo, nombre, descripcion, precio, 
               stock, stock_minimo, unidad_medida, afecto_igv, estado, creado_en
             ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               body.empresa_id, 'GEN-001', 'PRODUCTO GENÉRICO', 
-              'Producto genérico para comprobantes', 0, 0, 0, 'NIU', 1, 'activo'
+              'Producto genérico para comprobantes', 0, 0, 0, 'NIU', 1, 'activo', fechaCreacion
             ]
           );
           productoId = resultProducto.insertId;
@@ -220,6 +242,15 @@ export const emitirFactura = async (req, res) => {
 
     console.log(`✅ XML firmado: ${path.basename(xmlPath)}`);
 
+    // 📝 Leer el XML para generar el hash
+    const xmlContent = await fs.readFile(xmlPath, 'utf-8');
+    const hashCpe = crypto.createHash('sha256').update(xmlContent).digest('hex');
+    console.log(`🔐 Hash CPE generado: ${hashCpe.substring(0, 20)}...`);
+
+    // 📝 Generar código QR (formato SUNAT)
+    const codigoQr = `${ruc}|${tipoCpe}|${comprobanteData.serie}|${numero}|${comprobanteData.igv.toFixed(2)}|${comprobanteData.total.toFixed(2)}|${comprobanteData.fecha_emision.split(' ')[0]}|${clienteData.tipo_doc === 'RUC' ? '6' : '1'}|${clienteData.numero_doc}`;
+    console.log(`📱 Código QR generado: ${codigoQr.substring(0, 50)}...`);
+
     // 8️⃣ Crear ZIP
     const zipPath = path.resolve(`./facturas/${nombreBase}.zip`);
     const zip = new AdmZip();
@@ -228,27 +259,54 @@ export const emitirFactura = async (req, res) => {
 
     console.log(`✅ ZIP creado: ${path.basename(zipPath)}`);
 
-    // 9️⃣ Enviar a SUNAT (o simular en modo demo)
+    // 9️⃣ Enviar a SUNAT
     const resultado = await enviarFacturaASunat(zipPath, nombreBase);
 
     if (resultado.success) {
-      // ✅ ÉXITO - Actualizar estado a ACEPTADA
-      await actualizarEstado(comprobanteId, "ACEPTADA", resultado.cdrPath || null);
+      // ✅ ÉXITO - Actualizar TODOS los campos en la BD
+      const fechaEnvio = formatearFechaMySQL();
+      const fechaActualizacion = formatearFechaMySQL();
+      
+      await pool.query(
+        `UPDATE comprobantes_electronicos 
+         SET estado = ?,
+             hash_cpe = ?,
+             codigo_qr = ?,
+             xml_firmado = ?,
+             cdr_sunat = ?,
+             mensaje_sunat = ?,
+             codigo_respuesta_sunat = ?,
+             fecha_envio_sunat = ?,
+             actualizado_en = ?
+         WHERE id = ?`,
+        [
+          'ACEPTADA',
+          hashCpe,
+          codigoQr,
+          `/facturas/${nombreBase}.xml`,
+          resultado.cdrPath ? `/facturas/${path.basename(resultado.cdrPath)}` : null,
+          resultado.message || 'Comprobante aceptado',
+          resultado.codigoRespuesta || '0',
+          fechaEnvio,
+          fechaActualizacion,
+          comprobanteId
+        ]
+      );
 
       console.log("✅ ========== COMPROBANTE ACEPTADO ==========");
-      if (resultado.demo) {
-        console.log("🎭 MODO DEMO: Simulación exitosa");
-      }
       console.log(`📄 Serie-Número: ${comprobanteData.serie}-${numero}`);
       console.log(`💰 Total: S/ ${comprobanteData.total}`);
+      console.log(`🕐 Fecha/Hora: ${fechaEnvio}`);
+      console.log(`🔐 Hash: ${hashCpe.substring(0, 30)}...`);
+      console.log(`📱 QR: ${codigoQr.substring(0, 50)}...`);
+      console.log(`📄 XML: /facturas/${nombreBase}.xml`);
+      console.log(`📦 CDR: ${resultado.cdrPath ? '/facturas/' + path.basename(resultado.cdrPath) : 'N/A'}`);
       console.log("==============================================\n");
 
       return res.json({
         success: true,
         status: "ACEPTADA",
-        message: resultado.demo 
-          ? "🎭 Comprobante generado exitosamente (Modo Demostración)" 
-          : "Comprobante aceptado por SUNAT",
+        message: resultado.message || "Comprobante aceptado por SUNAT",
         data: {
           id: comprobanteId,
           serie: comprobanteData.serie,
@@ -256,15 +314,28 @@ export const emitirFactura = async (req, res) => {
           tipo: comprobanteData.tipo === '01' ? 'FACTURA' : 'BOLETA',
           total: comprobanteData.total,
           cliente: clienteData.nombre,
+          fecha_emision: comprobanteData.fecha_emision,
+          hash_cpe: hashCpe,
+          codigo_qr: codigoQr,
           pdf: `/facturas/${path.basename(pdfPath)}`,
           xml: `/facturas/${nombreBase}.xml`,
-          cdr: resultado.cdrPath ? `/facturas/${path.basename(resultado.cdrPath)}` : null,
-          demo: resultado.demo || false
+          cdr: resultado.cdrPath ? `/facturas/${path.basename(resultado.cdrPath)}` : null
         }
       });
     } else {
       // ❌ ERROR - Actualizar estado a RECHAZADA
-      await actualizarEstado(comprobanteId, "RECHAZADA", resultado.message);
+      const fechaEnvio = formatearFechaMySQL();
+      const fechaActualizacion = formatearFechaMySQL();
+      
+      await pool.query(
+        `UPDATE comprobantes_electronicos 
+         SET estado = ?,
+             mensaje_sunat = ?,
+             fecha_envio_sunat = ?,
+             actualizado_en = ?
+         WHERE id = ?`,
+        ['RECHAZADA', resultado.message, fechaEnvio, fechaActualizacion, comprobanteId]
+      );
 
       console.error("❌ ========== COMPROBANTE RECHAZADO ==========");
       console.error(`Error: ${resultado.message}`);
@@ -304,7 +375,9 @@ export const listar = async (req, res) => {
       });
     }
 
+    console.log(`📋 Listando facturas para empresa ID: ${empresaId}`);
     const facturas = await listarFacturas(empresaId);
+    console.log(`✅ Se encontraron ${facturas.length} facturas para la empresa ${empresaId}`);
 
     res.json({
       success: true,
