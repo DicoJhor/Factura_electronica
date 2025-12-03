@@ -3,6 +3,17 @@ import fs from "fs";
 import path from "path";
 import { pool } from "../config/db.js";
 
+// Función para escapar caracteres especiales XML (pero mantener CDATA)
+const escapeXml = (str) => {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+};
+
 export const generarXML = async ({ 
   serie, 
   numero, 
@@ -14,14 +25,16 @@ export const generarXML = async ({
   empresa_id
 }) => {
   
-  // 🔧 Obtener datos completos de la empresa si no se pasaron
+  console.log("📝 Generando XML UBL 2.1...");
+  
+  // Obtener datos completos de la empresa
   let empresaData;
   if (empresa_id) {
     const [rows] = await pool.query('SELECT * FROM empresas WHERE id = ?', [empresa_id]);
     empresaData = rows[0];
   }
 
-  // 🔧 Obtener datos completos del cliente si solo vino el ID
+  // Obtener datos completos del cliente
   let clienteCompleto = cliente;
   if (cliente_id && (!cliente.nombre || !cliente.documento)) {
     const [rows] = await pool.query('SELECT * FROM clientes WHERE id = ?', [cliente_id]);
@@ -53,6 +66,9 @@ export const generarXML = async ({
     const igvItem = (qty * price - subtotalItem).toFixed(2);
     const totalItem = (qty * price).toFixed(2);
     
+    // Usar CDATA para descripciones con caracteres especiales
+    const descripcion = p.descripcion || p.nombre || p.producto || 'Producto';
+    
     itemsXml += `
     <cac:InvoiceLine>
       <cbc:ID>${i + 1}</cbc:ID>
@@ -60,7 +76,7 @@ export const generarXML = async ({
       <cbc:LineExtensionAmount currencyID="PEN">${subtotalItem}</cbc:LineExtensionAmount>
       <cac:PricingReference>
         <cac:AlternativeConditionPrice>
-          <cbc:PriceAmount currencyID="PEN">${totalItem}</cbc:PriceAmount>
+          <cbc:PriceAmount currencyID="PEN">${price}</cbc:PriceAmount>
           <cbc:PriceTypeCode>01</cbc:PriceTypeCode>
         </cac:AlternativeConditionPrice>
       </cac:PricingReference>
@@ -81,10 +97,10 @@ export const generarXML = async ({
         </cac:TaxSubtotal>
       </cac:TaxTotal>
       <cac:Item>
-        <cbc:Description><![CDATA[${p.descripcion || p.nombre || p.producto || 'Producto'}]]></cbc:Description>
+        <cbc:Description><![CDATA[${descripcion}]]></cbc:Description>
       </cac:Item>
       <cac:Price>
-        <cbc:PriceAmount currencyID="PEN">${price}</cbc:PriceAmount>
+        <cbc:PriceAmount currencyID="PEN">${subtotalItem}</cbc:PriceAmount>
       </cac:Price>
     </cac:InvoiceLine>`;
   });
@@ -94,20 +110,12 @@ export const generarXML = async ({
   const nombreComercial = empresaData?.nombre_comercial || razonSocial;
   const direccionEmisor = empresaData?.direccion || "AV. EJEMPLO 123";
 
+  // Generar XML sin espacios innecesarios entre tags
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
-         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
-         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
-         xmlns:ccts="urn:un:unece:uncefact:documentation:2"
-         xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
-         xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"
-         xmlns:qdt="urn:oasis:names:specification:ubl:schema:xsd:QualifiedDatatypes-2"
-         xmlns:udt="urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ccts="urn:un:unece:uncefact:documentation:2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:qdt="urn:oasis:names:specification:ubl:schema:xsd:QualifiedDatatypes-2" xmlns:udt="urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ext:UBLExtensions>
     <ext:UBLExtension>
-      <ext:ExtensionContent>
-      </ext:ExtensionContent>
+      <ext:ExtensionContent></ext:ExtensionContent>
     </ext:UBLExtension>
   </ext:UBLExtensions>
   <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
@@ -185,19 +193,23 @@ export const generarXML = async ({
     <cbc:LineExtensionAmount currencyID="PEN">${subtotal}</cbc:LineExtensionAmount>
     <cbc:TaxInclusiveAmount currencyID="PEN">${Number(total).toFixed(2)}</cbc:TaxInclusiveAmount>
     <cbc:PayableAmount currencyID="PEN">${Number(total).toFixed(2)}</cbc:PayableAmount>
-  </cac:LegalMonetaryTotal>
-  ${itemsXml}
+  </cac:LegalMonetaryTotal>${itemsXml}
 </Invoice>`;
 
   const folder = path.resolve("./facturas");
-  if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder, { recursive: true });
+  }
   
   const fileName = nombreArchivo || `${serie}-${String(numero).padStart(6, '0')}`;
   const xmlPath = path.join(folder, `${fileName}.xml`);
   
-  console.log(`💾 Guardando XML UBL 2.1 como: ${fileName}.xml`);
+  console.log(`💾 Guardando XML: ${fileName}.xml`);
   
-  fs.writeFileSync(xmlPath, xml, "utf8");
+  // Guardar con UTF-8 sin BOM
+  fs.writeFileSync(xmlPath, xml, { encoding: "utf8" });
+  
+  console.log("✅ XML generado correctamente");
   
   return { xmlPath, xmlContent: xml };
 };
