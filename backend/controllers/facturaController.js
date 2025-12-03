@@ -6,6 +6,7 @@ import { pool } from "../config/db.js";
 import {
   crearFactura,
   agregarDetalle,
+  actualizarEstado,
   generarSiguienteNumero,
   listarFacturas
 } from "../models/facturaModel.js";
@@ -248,7 +249,8 @@ export const emitirFactura = async (req, res) => {
     console.log(`🔐 Hash CPE generado: ${hashCpe.substring(0, 20)}...`);
 
     // 📝 Generar código QR (formato SUNAT)
-    const codigoQr = `${ruc}|${tipoCpe}|${comprobanteData.serie}|${numero}|${comprobanteData.igv.toFixed(2)}|${comprobanteData.total.toFixed(2)}|${comprobanteData.fecha_emision.split(' ')[0]}|${clienteData.tipo_doc === 'RUC' ? '6' : '1'}|${clienteData.numero_doc}`;
+    const fechaSoloFecha = comprobanteData.fecha_emision.split(' ')[0]; // YYYY-MM-DD
+    const codigoQr = `${ruc}|${tipoCpe}|${comprobanteData.serie}|${numero}|${comprobanteData.igv.toFixed(2)}|${comprobanteData.total.toFixed(2)}|${fechaSoloFecha}|${clienteData.tipo_doc === 'RUC' ? '6' : '1'}|${clienteData.numero_doc}`;
     console.log(`📱 Código QR generado: ${codigoQr.substring(0, 50)}...`);
 
     // 8️⃣ Crear ZIP
@@ -263,35 +265,31 @@ export const emitirFactura = async (req, res) => {
     const resultado = await enviarFacturaASunat(zipPath, nombreBase);
 
     if (resultado.success) {
-      // ✅ ÉXITO - Actualizar TODOS los campos en la BD
+      // ✅ ÉXITO - Primero actualizar con actualizarEstado (tu función original)
+      await actualizarEstado(comprobanteId, "ACEPTADA", resultado.cdrPath || null);
+
+      // 🔥 Luego actualizar los campos adicionales directamente
       const fechaEnvio = formatearFechaMySQL();
-      const fechaActualizacion = formatearFechaMySQL();
       
+      // 🔥 Actualizar campos en la tabla comprobantes (solo las columnas existentes)
       await pool.query(
-        `UPDATE comprobantes_electronicos 
-         SET estado = ?,
-             hash_cpe = ?,
+        `UPDATE comprobantes 
+         SET hash_cpe = ?,
              codigo_qr = ?,
              xml_firmado = ?,
              cdr_sunat = ?,
-             mensaje_sunat = ?,
-             codigo_respuesta_sunat = ?,
-             fecha_envio_sunat = ?,
-             actualizado_en = ?
+             mensaje_sunat = ?
          WHERE id = ?`,
         [
-          'ACEPTADA',
           hashCpe,
           codigoQr,
           `/facturas/${nombreBase}.xml`,
           resultado.cdrPath ? `/facturas/${path.basename(resultado.cdrPath)}` : null,
           resultado.message || 'Comprobante aceptado',
-          resultado.codigoRespuesta || '0',
-          fechaEnvio,
-          fechaActualizacion,
           comprobanteId
         ]
       );
+      console.log('✅ Todos los campos actualizados en BD');
 
       console.log("✅ ========== COMPROBANTE ACEPTADO ==========");
       console.log(`📄 Serie-Número: ${comprobanteData.serie}-${numero}`);
@@ -324,18 +322,7 @@ export const emitirFactura = async (req, res) => {
       });
     } else {
       // ❌ ERROR - Actualizar estado a RECHAZADA
-      const fechaEnvio = formatearFechaMySQL();
-      const fechaActualizacion = formatearFechaMySQL();
-      
-      await pool.query(
-        `UPDATE comprobantes_electronicos 
-         SET estado = ?,
-             mensaje_sunat = ?,
-             fecha_envio_sunat = ?,
-             actualizado_en = ?
-         WHERE id = ?`,
-        ['RECHAZADA', resultado.message, fechaEnvio, fechaActualizacion, comprobanteId]
-      );
+      await actualizarEstado(comprobanteId, "RECHAZADA", resultado.message);
 
       console.error("❌ ========== COMPROBANTE RECHAZADO ==========");
       console.error(`Error: ${resultado.message}`);
