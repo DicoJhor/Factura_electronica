@@ -224,7 +224,7 @@ export const emitirFactura = async (req, res) => {
         ruc: clienteData.numero_doc,
         documento: clienteData.numero_doc,
         nombre: clienteData.nombre,
-        direccion: ckuebteData.direccion,
+        direccion: clienteData.direccion,
         tipoDoc: clienteData.tipo_doc === 'RUC' ? '6' : '1'
       
       },
