@@ -11,15 +11,12 @@ const __dirname = path.dirname(__filename);
 const pemFromPfx = (pfxBuffer, pass) => {
   const p12Asn1 = forge.asn1.fromDer(pfxBuffer.toString("binary"));
   const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, pass);
-
   const keyObj = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[
     forge.pki.oids.pkcs8ShroudedKeyBag
   ][0].key;
   const privateKeyPem = forge.pki.privateKeyToPem(keyObj);
-
   const certObj = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag][0].cert;
   const certPem = forge.pki.certificateToPem(certObj);
-
   return { privateKeyPem, certPem };
 };
 
@@ -28,10 +25,10 @@ export const firmarXML = (xmlPath, xmlContent) => {
     const pfxPath = path.join(__dirname, "..", "certificados", "certificado_sunat.pfx");
     const pfxBuffer = fs.readFileSync(pfxPath);
     const { privateKeyPem, certPem } = pemFromPfx(pfxBuffer, process.env.SUNAT_CERT_PASS || "");
-
+    
     // Crear hash del XML (sin la firma)
     const hash = crypto.createHash('sha256').update(xmlContent, 'utf8').digest('base64');
-
+    
     // Crear SignedInfo
     const signedInfo = `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
   <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
@@ -44,18 +41,18 @@ export const firmarXML = (xmlPath, xmlContent) => {
     <DigestValue>${hash}</DigestValue>
   </Reference>
 </SignedInfo>`;
-
+    
     // Firmar el SignedInfo
     const sign = crypto.createSign('RSA-SHA256');
     sign.update(signedInfo);
     const signature = sign.sign(privateKeyPem, 'base64');
-
+    
     // Extraer el certificado sin headers
     const certBase64 = certPem
       .replace(/-----BEGIN CERTIFICATE-----/, '')
       .replace(/-----END CERTIFICATE-----/, '')
       .replace(/\n/g, '');
-
+    
     // Crear la firma XML completa
     const signatureXml = `<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
   ${signedInfo}
@@ -66,16 +63,20 @@ export const firmarXML = (xmlPath, xmlContent) => {
     </X509Data>
   </KeyInfo>
 </Signature>`;
-
+    
     // Insertar la firma antes de cerrar el tag Invoice
     const signedXml = xmlContent.replace('</Invoice>', `${signatureXml}\n</Invoice>`);
-
+    
+    // 🔧 Mantener el mismo nombre base, solo agregar _signed
     const signedPath = xmlPath.replace(".xml", "_signed.xml");
+    
     fs.writeFileSync(signedPath, signedXml, "utf8");
-
+    
+    console.log(`🔐 XML firmado guardado como: ${path.basename(signedPath)}`);
+    
     return signedPath;
   } catch (error) {
-    console.error("Error al firmar XML:", error);
+    console.error("❌ Error al firmar XML:", error);
     throw error;
   }
 };
