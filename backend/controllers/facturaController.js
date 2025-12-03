@@ -44,23 +44,38 @@ export const emitirFactura = async (req, res) => {
 
     // 🆕 1️⃣ BUSCAR O CREAR CLIENTE
     let clienteId;
+    let clienteData;
 
     if (body.cliente_id) {
-      // Si viene cliente_id directamente, lo usamos
+      // Si viene cliente_id directamente, lo usamos y buscamos los datos
       clienteId = body.cliente_id;
+      
+      const [clienteRows] = await pool.query(
+        'SELECT * FROM clientes WHERE id = ? AND empresa_id = ?',
+        [clienteId, body.empresa_id]
+      );
+      
+      if (clienteRows.length === 0) {
+        throw new Error('Cliente no encontrado');
+      }
+      
+      clienteData = clienteRows[0];
+      console.log(`✅ Cliente encontrado: ${clienteData.nombre}`);
+      
     } else if (body.cliente) {
       // Si vienen los datos del cliente, buscamos o creamos
       const { tipoDoc, numeroDoc, nombre, direccion } = body.cliente;
 
       // Buscar si el cliente ya existe
       const [clientesExistentes] = await pool.query(
-        'SELECT id FROM clientes WHERE numero_doc = ? AND empresa_id = ?',
+        'SELECT * FROM clientes WHERE numero_doc = ? AND empresa_id = ?',
         [numeroDoc, body.empresa_id]
       );
 
       if (clientesExistentes.length > 0) {
         // Cliente ya existe
-        clienteId = clientesExistentes[0].id;
+        clienteData = clientesExistentes[0];
+        clienteId = clienteData.id;
         console.log(`✅ Cliente existente encontrado: ID ${clienteId}`);
       } else {
         // Crear nuevo cliente
@@ -70,6 +85,14 @@ export const emitirFactura = async (req, res) => {
           [body.empresa_id, tipoDoc, numeroDoc, nombre, direccion || null]
         );
         clienteId = resultCliente.insertId;
+        
+        // Obtener el cliente recién creado
+        const [nuevoCliente] = await pool.query(
+          'SELECT * FROM clientes WHERE id = ?',
+          [clienteId]
+        );
+        clienteData = nuevoCliente[0];
+        
         console.log(`✅ Nuevo cliente creado: ID ${clienteId}`);
       }
     }
@@ -158,27 +181,7 @@ export const emitirFactura = async (req, res) => {
       });
     }
 
-    // 5️⃣ Generar PDF
-    const pdfPath = await generarPDF(
-      { 
-        serie: comprobanteData.serie,
-        numero: comprobanteData.numero,
-        total: comprobanteData.total,
-        fecha_emision: comprobanteData.fecha_emision
-      },
-      body.detalles
-    );
-
-    // 6️⃣ Generar XML
-    const xmlPath = await generarYFirmarXML({
-      serie: comprobanteData.serie,
-      numero: comprobanteData.numero,
-      total: comprobanteData.total,
-      cliente_id: clienteId,
-      productos: body.detalles
-    });
-
-    // 7️⃣ Crear ZIP con nombre correcto para SUNAT
+    // 🔧 5️⃣ CALCULAR NOMBRE BASE PRIMERO (antes de generar XML y PDF)
     // Obtener el RUC de la empresa
     const [empresaData] = await pool.query(
       'SELECT ruc FROM empresas WHERE id = ?',
@@ -197,15 +200,44 @@ export const emitirFactura = async (req, res) => {
     // Formato correcto: RUC-TIPO_CPE-SERIE-NUMERO
     const nombreBase = `${ruc}-${tipoCpe}-${comprobanteData.serie}-${String(numero).padStart(6, "0")}`;
 
-    console.log(`📦 Nombre del archivo ZIP: ${nombreBase}.zip`);
+    console.log(`📦 Nombre base del comprobante: ${nombreBase}`);
 
+    // 6️⃣ Generar PDF
+    const pdfPath = await generarPDF(
+      { 
+        serie: comprobanteData.serie,
+        numero: comprobanteData.numero,
+        total: comprobanteData.total,
+        fecha_emision: comprobanteData.fecha_emision
+      },
+      body.detalles
+    );
+
+    // 7️⃣ Generar XML con el nombre correcto y datos del cliente
+    const xmlPath = await generarYFirmarXML({
+      serie: comprobanteData.serie,
+      numero: comprobanteData.numero,
+      total: comprobanteData.total,
+      cliente_id: clienteId,
+      cliente: {
+        ruc: clienteData.numero_doc,
+        documento: clienteData.numero_doc,
+        nombre: clienteData.nombre
+      },
+      productos: body.detalles,
+      nombreArchivo: nombreBase // 🆕 Pasar el nombre completo
+    });
+
+    // 8️⃣ Crear ZIP
     const zipPath = path.resolve(`./facturas/${nombreBase}.zip`);
 
     const zip = new AdmZip();
     zip.addLocalFile(xmlPath);
     zip.writeZip(zipPath);
 
-    // 8️⃣ Enviar a SUNAT (si no está en modo desarrollo)
+    console.log(`✅ ZIP creado: ${zipPath}`);
+
+    // 9️⃣ Enviar a SUNAT (si no está en modo desarrollo)
     const modoDesarrollo = process.env.MODO_DESARROLLO === "true";
 
     if (modoDesarrollo) {
@@ -249,8 +281,6 @@ export const emitirFactura = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-// En tu facturaController.js, actualiza el método listar:
 
 export const listar = async (req, res) => {
   try {
