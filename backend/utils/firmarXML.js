@@ -2,8 +2,8 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { SignedXml } from "xml-crypto";
 import forge from "node-forge";
+import crypto from "crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +20,15 @@ const pemFromPfx = (pfxBuffer, pass) => {
   return { privateKeyPem, certPem };
 };
 
+// Función para canonicalizar XML (C14N)
+function canonicalize(xml) {
+  return xml
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/>\s+</g, '><')
+    .trim();
+}
+
 export const firmarXML = (xmlPath, xmlContent) => {
   try {
     const pfxPath = path.join(__dirname, "..", "certificados", "certificado_sunat.pfx");
@@ -33,51 +42,60 @@ export const firmarXML = (xmlPath, xmlContent) => {
       .replace(/\n/g, '')
       .replace(/\r/g, '');
     
-    // Crear firma XML usando xml-crypto
-    const sig = new SignedXml();
+    // PASO 1: Canonicalizar el XML original para calcular el digest
+    const canonicalXml = canonicalize(xmlContent);
+    const digestValue = crypto.createHash('sha256').update(canonicalXml, 'utf8').digest('base64');
     
-    // Configurar la clave privada
-    sig.signingKey = privateKeyPem;
+    // PASO 2: Crear SignedInfo
+    const signedInfo = `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+<SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+<Reference URI="">
+<Transforms>
+<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+</Transforms>
+<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+<DigestValue>${digestValue}</DigestValue>
+</Reference>
+</SignedInfo>`;
     
-    // Configurar algoritmos
-    sig.signatureAlgorithm = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
-    sig.canonicalizationAlgorithm = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+    // PASO 3: Canonicalizar SignedInfo y firmarlo
+    const canonicalSignedInfo = canonicalize(signedInfo);
+    const signer = crypto.createSign('RSA-SHA256');
+    signer.update(canonicalSignedInfo);
+    const signatureValue = signer.sign(privateKeyPem, 'base64');
     
-    // Agregar referencia al documento completo
-    sig.addReference(
-      "//*[local-name(.)='Invoice']", // XPath al nodo Invoice
-      [
-        "http://www.w3.org/2000/09/xmldsig#enveloped-signature",
-        "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
-      ],
-      "http://www.w3.org/2001/04/xmlenc#sha256"
+    // PASO 4: Construir la Signature completa
+    const signature = `<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="SignatureSP">
+<ds:SignedInfo>
+<ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+<ds:Reference URI="">
+<ds:Transforms>
+<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+</ds:Transforms>
+<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+<ds:DigestValue>${digestValue}</ds:DigestValue>
+</ds:Reference>
+</ds:SignedInfo>
+<ds:SignatureValue>${signatureValue}</ds:SignatureValue>
+<ds:KeyInfo>
+<ds:X509Data>
+<ds:X509Certificate>${certBase64}</ds:X509Certificate>
+</ds:X509Data>
+</ds:KeyInfo>
+</ds:Signature>`;
+    
+    // PASO 5: Insertar la firma en ExtensionContent
+    const signedXml = xmlContent.replace(
+      /<ext:ExtensionContent>\s*<\/ext:ExtensionContent>/,
+      `<ext:ExtensionContent>${signature}</ext:ExtensionContent>`
     );
     
-    // Configurar KeyInfo con el certificado
-    sig.keyInfoProvider = {
-      getKeyInfo: () => {
-        return `<X509Data><X509Certificate>${certBase64}</X509Certificate></X509Data>`;
-      }
-    };
+    // PASO 6: Guardar el XML firmado
+    fs.writeFileSync(xmlPath, signedXml, "utf8");
     
-    // Calcular la firma
-    sig.computeSignature(xmlContent, {
-      location: { reference: "//*[local-name(.)='ExtensionContent']", action: "append" }
-    });
-    
-    // Obtener el XML firmado
-    const signedXml = sig.getSignedXml();
-    
-    // Agregar el atributo Id="SignatureSP" a la firma
-    const finalXml = signedXml.replace(
-      /<Signature xmlns="http:\/\/www.w3.org\/2000\/09\/xmldsig#">/,
-      '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#" Id="SignatureSP">'
-    );
-    
-    // Guardar el XML firmado
-    fs.writeFileSync(xmlPath, finalXml, "utf8");
-    
-    console.log(`🔐 XML firmado correctamente con xml-crypto`);
+    console.log(`🔐 XML firmado correctamente (método manual)`);
     
     return xmlPath;
   } catch (error) {
