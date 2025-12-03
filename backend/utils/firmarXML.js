@@ -67,12 +67,12 @@ export const firmarXML = (xmlPath, xmlContent) => {
     // Insertar la firma antes de cerrar el tag Invoice
     const signedXml = xmlContent.replace('</Invoice>', `${signatureXml}\n</Invoice>`);
     
-    // 🔧 Mantener el mismo nombre base, solo agregar _signed
-    const signedPath = xmlPath.replace(".xml", "_signed.xml");
+    // 🔧 CAMBIO: Sobrescribir el archivo original, no crear uno nuevo con _signed
+    const signedPath = xmlPath; // Mismo nombre, sobrescribe el archivo
     
     fs.writeFileSync(signedPath, signedXml, "utf8");
     
-    console.log(`🔐 XML firmado guardado como: ${path.basename(signedPath)}`);
+    console.log(`🔐 XML firmado y guardado en: ${path.basename(signedPath)}`);
     
     return signedPath;
   } catch (error) {
