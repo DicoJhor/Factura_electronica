@@ -1,8 +1,34 @@
 // backend/services/sunatService.js
-
 import axios from 'axios';
+import https from 'https';
 import fs from 'fs/promises';
+import fsSync from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
+import forge from 'node-forge';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Función para extraer PEM del PFX
+const pemFromPfx = (pfxPath, password) => {
+  const pfxBuffer = fsSync.readFileSync(pfxPath);
+  const p12Asn1 = forge.asn1.fromDer(pfxBuffer.toString("binary"));
+  const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, password);
+  
+  const keyObj = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[
+    forge.pki.oids.pkcs8ShroudedKeyBag
+  ][0].key;
+  const privateKeyPem = forge.pki.privateKeyToPem(keyObj);
+  
+  const certObj = p12.getBags({ bagType: forge.pki.oids.certBag })[
+    forge.pki.oids.certBag
+  ][0].cert;
+  const certPem = forge.pki.certificateToPem(certObj);
+  
+  return { privateKeyPem, certPem };
+};
 
 class SunatService {
   constructor() {
@@ -17,6 +43,43 @@ class SunatService {
     this.usuarioSol = process.env.SUNAT_USUARIO_SOL || 'MODDATOS';
     this.claveSol = process.env.SUNAT_CLAVE_SOL || 'MODDATOS';
     this.ambiente = process.env.SUNAT_AMBIENTE || 'beta';
+    this.certPassword = process.env.SUNAT_CERT_PASS || '';
+    
+    // Cargar certificado PFX
+    this.certificadoPath = path.join(__dirname, "..", "certificados", "certificado_sunat.pfx");
+    
+    // Inicializar agente HTTPS con certificado
+    this.inicializarCertificado();
+  }
+
+  /**
+   * Inicializa el agente HTTPS con el certificado PFX
+   */
+  inicializarCertificado() {
+    try {
+      if (!fsSync.existsSync(this.certificadoPath)) {
+        console.warn(`⚠️ Certificado no encontrado en: ${this.certificadoPath}`);
+        console.warn('⚠️ Las peticiones a SUNAT pueden fallar sin certificado');
+        this.httpsAgent = null;
+        return;
+      }
+
+      // Extraer PEM del PFX
+      const { privateKeyPem, certPem } = pemFromPfx(this.certificadoPath, this.certPassword);
+      
+      // Crear agente HTTPS con el certificado
+      this.httpsAgent = new https.Agent({
+        cert: certPem,
+        key: privateKeyPem,
+        rejectUnauthorized: false // Para ambiente Beta
+      });
+      
+      console.log('✅ Certificado digital cargado correctamente para SUNAT');
+      
+    } catch (error) {
+      console.error('❌ Error al cargar certificado:', error.message);
+      this.httpsAgent = null;
+    }
   }
 
   /**
@@ -28,9 +91,16 @@ class SunatService {
     try {
       console.log('📤 Enviando comprobante a SUNAT:', nombreArchivo);
 
+      // Verificar que tenemos el certificado
+      if (!this.httpsAgent) {
+        console.warn('⚠️ Enviando sin certificado SSL - puede fallar');
+      }
+
       // Leer el archivo ZIP y convertir a Base64
       const zipBuffer = await fs.readFile(zipPath);
       const zipBase64 = zipBuffer.toString('base64');
+
+      console.log(`📦 ZIP cargado: ${zipBuffer.length} bytes`);
 
       // Eliminar la extensión .zip si viene en el nombre
       const nombreSinExtension = nombreArchivo.replace('.zip', '');
@@ -47,16 +117,21 @@ class SunatService {
       // URL según ambiente
       const url = this.urls[this.ambiente];
       console.log(`🌐 Enviando a: ${url}`);
+      console.log(`🔐 Usuario: ${this.rucEmisor}${this.usuarioSol}`);
 
-      // Enviar request HTTP directo
-      const response = await axios.post(url, soapEnvelope, {
+      // Configuración de axios con certificado
+      const axiosConfig = {
         headers: {
           'Content-Type': 'text/xml;charset=UTF-8',
           'SOAPAction': 'urn:sendBill'
         },
         timeout: 60000, // 60 segundos
-        validateStatus: () => true // Aceptar cualquier status para manejar errores manualmente
-      });
+        validateStatus: () => true, // Aceptar cualquier status
+        httpsAgent: this.httpsAgent // CRÍTICO: Usar agente con certificado
+      };
+
+      // Enviar request HTTP
+      const response = await axios.post(url, soapEnvelope, axiosConfig);
 
       console.log(`✅ Respuesta recibida de SUNAT (Status: ${response.status})`);
 
@@ -86,6 +161,16 @@ class SunatService {
 
     } catch (error) {
       console.error('❌ Error al enviar a SUNAT:', error.message);
+      
+      // Log adicional para debugging
+      if (error.response) {
+        console.error('📋 Status:', error.response.status);
+        console.error('📋 Headers:', error.response.headers);
+        if (error.response.data) {
+          console.error('📋 Data (primeros 500 chars):', 
+            String(error.response.data).substring(0, 500));
+        }
+      }
       
       return {
         success: false,
@@ -128,13 +213,13 @@ class SunatService {
       console.log('🔍 Parseando respuesta XML de SUNAT...');
       
       // Log parcial de la respuesta para debug (primeros 500 caracteres)
-      console.log('📄 Respuesta XML (inicio):', xmlResponse.substring(0, 500));
+      console.log('📄 Respuesta XML (inicio):', String(xmlResponse).substring(0, 500));
 
       // Intentar diferentes patrones para encontrar el contenido Base64
       let cdrBase64 = null;
       
       // Patrón 1: <applicationResponse>...</applicationResponse>
-      let match = xmlResponse.match(/<applicationResponse[^>]*>(.*?)<\/applicationResponse>/s);
+      let match = String(xmlResponse).match(/<applicationResponse[^>]*>(.*?)<\/applicationResponse>/s);
       if (match && match[1]) {
         cdrBase64 = match[1].trim();
         console.log('✅ Encontrado applicationResponse (patrón 1)');
@@ -142,7 +227,7 @@ class SunatService {
       
       // Patrón 2: <ns2:applicationResponse>...</ns2:applicationResponse>
       if (!cdrBase64) {
-        match = xmlResponse.match(/<[^:]+:applicationResponse[^>]*>(.*?)<\/[^:]+:applicationResponse>/s);
+        match = String(xmlResponse).match(/<[^:]+:applicationResponse[^>]*>(.*?)<\/[^:]+:applicationResponse>/s);
         if (match && match[1]) {
           cdrBase64 = match[1].trim();
           console.log('✅ Encontrado applicationResponse (patrón 2 con namespace)');
@@ -151,19 +236,10 @@ class SunatService {
       
       // Patrón 3: Buscar cualquier contenido Base64 largo (más de 100 caracteres)
       if (!cdrBase64) {
-        match = xmlResponse.match(/>([A-Za-z0-9+/=]{100,})</s);
+        match = String(xmlResponse).match(/>([A-Za-z0-9+/=]{100,})</s);
         if (match && match[1]) {
           cdrBase64 = match[1].trim();
           console.log('✅ Encontrado contenido Base64 (patrón 3)');
-        }
-      }
-
-      // Patrón 4: Buscar entre tags que contengan "content" o "response"
-      if (!cdrBase64) {
-        match = xmlResponse.match(/<[^>]*(?:content|response)[^>]*>([A-Za-z0-9+/=\s]{100,})<\/[^>]+>/is);
-        if (match && match[1]) {
-          cdrBase64 = match[1].replace(/\s+/g, '');
-          console.log('✅ Encontrado contenido en tags con content/response (patrón 4)');
         }
       }
 
@@ -235,13 +311,26 @@ class SunatService {
    */
   parsearErrorSunat(xmlResponse) {
     try {
+      const responseStr = String(xmlResponse);
+      
       // Buscar faultcode
-      const codeMatch = xmlResponse.match(/<faultcode[^>]*>(.*?)<\/faultcode>/);
+      const codeMatch = responseStr.match(/<faultcode[^>]*>(.*?)<\/faultcode>/);
       const codigo = codeMatch ? codeMatch[1] : 'ERROR';
 
       // Buscar faultstring
-      const msgMatch = xmlResponse.match(/<faultstring[^>]*>(.*?)<\/faultstring>/);
-      const mensaje = msgMatch ? msgMatch[1] : 'Error desconocido de SUNAT';
+      const msgMatch = responseStr.match(/<faultstring[^>]*>(.*?)<\/faultstring>/);
+      let mensaje = msgMatch ? msgMatch[1] : 'Error desconocido de SUNAT';
+      
+      // Buscar detalle adicional
+      const detailMatch = responseStr.match(/<detail[^>]*>(.*?)<\/detail>/s);
+      if (detailMatch) {
+        const detail = detailMatch[1];
+        // Intentar extraer mensaje específico del detalle
+        const msgDetailMatch = detail.match(/<message[^>]*>(.*?)<\/message>/);
+        if (msgDetailMatch) {
+          mensaje += ` - Detalle: ${msgDetailMatch[1]}`;
+        }
+      }
 
       return {
         codigo,
@@ -299,7 +388,8 @@ class SunatService {
           'Content-Type': 'text/xml;charset=UTF-8',
           'SOAPAction': 'urn:getStatus'
         },
-        timeout: 30000
+        timeout: 30000,
+        httpsAgent: this.httpsAgent // Usar agente con certificado
       });
 
       const resultado = this.parsearEstado(response.data);
@@ -315,8 +405,9 @@ class SunatService {
    * Parsea respuesta de getStatus usando regex
    */
   parsearEstado(xmlResponse) {
-    const codeMatch = xmlResponse.match(/<statusCode[^>]*>(.*?)<\/statusCode>/);
-    const msgMatch = xmlResponse.match(/<statusMessage[^>]*>(.*?)<\/statusMessage>/);
+    const responseStr = String(xmlResponse);
+    const codeMatch = responseStr.match(/<statusCode[^>]*>(.*?)<\/statusCode>/);
+    const msgMatch = responseStr.match(/<statusMessage[^>]*>(.*?)<\/statusMessage>/);
 
     if (!codeMatch) {
       throw new Error('Respuesta de estado inválida');
